@@ -19,6 +19,7 @@ exports.log = log;
 __exportStar(require("./types"), exports);
 __exportStar(require("./db"), exports);
 __exportStar(require("./system"), exports);
+__exportStar(require("./config"), exports);
 exports.CORE_VERSION = "0.1.0";
 function log(message) {
     console.log(`[CORE] ${message}`);

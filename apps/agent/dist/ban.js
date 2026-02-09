@@ -1,13 +1,11 @@
-import { log } from "@sentinel/core";
+import { log, BANNED_IPS_FILE } from "@sentinel/core";
 import { exec } from "child_process";
 import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 export class BanManager {
     strikes = new Map();
     bannedIPs = new Map();
     MAX_STRIKES = 5;
-    DB_PATH = path.join(os.homedir(), ".sentinel", "banned_ips.json");
+    DB_PATH = BANNED_IPS_FILE;
     BAN_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 Days
     constructor() {
         this.loadBannedIPs();

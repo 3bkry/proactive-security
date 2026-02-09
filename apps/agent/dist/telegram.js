@@ -1,8 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { log } from '@sentinel/core';
+import { log, CONFIG_FILE } from '@sentinel/core';
 import fs from 'fs';
-import os from 'os';
-import path from 'path';
 export class TelegramNotifier {
     bot = null;
     chatId = null;
@@ -14,9 +12,8 @@ export class TelegramNotifier {
     }
     initialize() {
         try {
-            const configPath = path.join(os.homedir(), ".sentinel", "config.json");
-            if (fs.existsSync(configPath)) {
-                const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+            if (fs.existsSync(CONFIG_FILE)) {
+                const config = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
                 const token = config.TELEGRAM_BOT_TOKEN;
                 this.chatId = config.TELEGRAM_CHAT_ID;
                 if (token && this.chatId) {

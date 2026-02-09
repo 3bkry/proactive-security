@@ -93,10 +93,9 @@ program
     const os = require('os');
     const path = require('path');
     // Simple config file in home dir for now
-    const configDir = path.join(os.homedir(), '.sentinel');
-    if (!fs.existsSync(configDir))
-        fs.mkdirSync(configDir, { recursive: true });
-    const configFile = path.join(configDir, 'config.json');
+    // const configDir = path.join(os.homedir(), '.sentinel');
+    // if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+    const configFile = core_1.CONFIG_FILE;
     let config = {};
     if (fs.existsSync(configFile)) {
         try {

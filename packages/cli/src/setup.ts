@@ -6,26 +6,16 @@ import ora from 'ora';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { log } from '@sentinel/core';
+import { log, SENTINEL_CONFIG_DIR, CONFIG_FILE } from '@sentinel/core';
 
 export async function runSetup() {
-    console.clear();
-    console.log(
-        chalk.red(
-            figlet.textSync('SentinelAI', { horizontalLayout: 'full' })
-        )
-    );
-    console.log(chalk.dim(' System Security & Threat Detection Agent\n'));
+    console.log(chalk.blue.bold('\n🛡️  SentinelAI Setup Wizard\n'));
 
-    // 1. Load Existing Config First
-    const configDir = path.join(os.homedir(), '.sentinel');
-    if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
-
-    const configFile = path.join(configDir, 'config.json');
-    let config: any = { WATCH_FILES: [] };
-    if (fs.existsSync(configFile)) {
+    // Load existing config if available
+    let config: any = { WATCH_FILES: [] }; // Initialize config here
+    if (fs.existsSync(CONFIG_FILE)) {
         try {
-            config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+            config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
         } catch (e) { }
     }
 
@@ -298,7 +288,7 @@ export async function runSetup() {
         }
     }
 
-    fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
 
     await new Promise(resolve => setTimeout(resolve, 1000)); // Fake delight
     spinner.succeed('Configuration saved!');

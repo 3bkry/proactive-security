@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { log } from '@sentinel/core';
+import { log, CONFIG_FILE } from '@sentinel/core';
 import { spawn } from 'child_process';
 import path from 'path';
 
@@ -102,11 +102,11 @@ program
         const path = require('path');
 
         // Simple config file in home dir for now
-        const configDir = path.join(os.homedir(), '.sentinel');
-        if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+        // const configDir = path.join(os.homedir(), '.sentinel');
+        // if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
 
-        const configFile = path.join(configDir, 'config.json');
-        let config: Record<string, string> = {};
+        const configFile = CONFIG_FILE;
+        let config: any = {};
         if (fs.existsSync(configFile)) {
             try {
                 config = JSON.parse(fs.readFileSync(configFile, 'utf8'));

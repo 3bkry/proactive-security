@@ -64,9 +64,13 @@ SentinelAI consists of three main components:
 2.  **AI Engine**: Integated with Google Gemini 3.0 Flash Preview for intelligent threat analysis.
 3.  **CLI (sentinelctl)**: A powerful command-line interface for management.
 
-## 🔒 Security Note
+## 🔒 Security Note and System Paths
 
-This agent requires `sudo` privileges to modify `iptables` for banning IPs. The installer automatically configures a secure `sudoers` rule to allow *only* the banning command without a password.
+- **Installation**: Installs to `/opt/sentinel-agent`.
+- **Config**: `/etc/sentinel-agent/config.json`
+- **Logs**: `/var/log/sentinel-agent/`
+- **Permissions**: Defines a `sentinel` group and adds your user to it.
+- **Sudo**: Configures `/etc/sudoers.d/sentinel-ban` to allow the `sentinel` group to run `iptables` without a password (required for active defense).
 
 ## 🤝 Contributing
 

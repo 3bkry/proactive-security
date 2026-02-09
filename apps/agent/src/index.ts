@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import { LogWatcher } from "./watcher.js";
 import { AIManager } from "./ai.js";
-import { log, getSystemStats } from "@sentinel/core";
+import { log, getSystemStats, CONFIG_FILE } from "@sentinel/core";
 import { BanManager } from "./ban.js";
 import { TelegramNotifier } from "./telegram.js";
 import { HeartbeatService } from "./heartbeat.js";
@@ -260,7 +260,7 @@ watcher.on("file_changed", async (path) => {
 });
 
 // Load config and watch files
-const configPath = path.join(os.homedir(), ".sentinel", "config.json");
+const configPath = CONFIG_FILE;
 
 if (fs.existsSync(configPath)) {
     const config = JSON.parse(fs.readFileSync(configPath, "utf8"));

@@ -5,7 +5,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.runSetup = runSetup;
 const inquirer_1 = __importDefault(require("inquirer"));
-const figlet_1 = __importDefault(require("figlet"));
 const chalk_1 = __importDefault(require("chalk"));
 const ora_1 = __importDefault(require("ora"));
 const fs_1 = __importDefault(require("fs"));
@@ -13,18 +12,12 @@ const path_1 = __importDefault(require("path"));
 const os_1 = __importDefault(require("os"));
 const core_1 = require("@sentinel/core");
 async function runSetup() {
-    console.clear();
-    console.log(chalk_1.default.red(figlet_1.default.textSync('SentinelAI', { horizontalLayout: 'full' })));
-    console.log(chalk_1.default.dim(' System Security & Threat Detection Agent\n'));
-    // 1. Load Existing Config First
-    const configDir = path_1.default.join(os_1.default.homedir(), '.sentinel');
-    if (!fs_1.default.existsSync(configDir))
-        fs_1.default.mkdirSync(configDir, { recursive: true });
-    const configFile = path_1.default.join(configDir, 'config.json');
-    let config = { WATCH_FILES: [] };
-    if (fs_1.default.existsSync(configFile)) {
+    console.log(chalk_1.default.blue.bold('\n🛡️  SentinelAI Setup Wizard\n'));
+    // Load existing config if available
+    let config = { WATCH_FILES: [] }; // Initialize config here
+    if (fs_1.default.existsSync(core_1.CONFIG_FILE)) {
         try {
-            config = JSON.parse(fs_1.default.readFileSync(configFile, 'utf8'));
+            config = JSON.parse(fs_1.default.readFileSync(core_1.CONFIG_FILE, 'utf8'));
         }
         catch (e) { }
     }
@@ -278,7 +271,7 @@ async function runSetup() {
             Spinner.fail('Failed to auto-detect Chat ID.');
         }
     }
-    fs_1.default.writeFileSync(configFile, JSON.stringify(config, null, 2));
+    fs_1.default.writeFileSync(core_1.CONFIG_FILE, JSON.stringify(config, null, 2));
     await new Promise(resolve => setTimeout(resolve, 1000)); // Fake delight
     spinner.succeed('Configuration saved!');
     console.log('\n' + chalk_1.default.green('✔ Setup Complete!'));

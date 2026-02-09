@@ -1,6 +1,6 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { log } from "@sentinel/core";
+import { log, CONFIG_FILE } from "@sentinel/core";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -39,10 +39,9 @@ Respond ONLY with this JSON structure:
 
     private getApiKey(): string | null {
         // Preference: Config file > Env var
-        const configPath = path.join(os.homedir(), ".sentinel", "config.json");
-        if (fs.existsSync(configPath)) {
+        if (fs.existsSync(CONFIG_FILE)) {
             try {
-                const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+                const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
                 if (config.GEMINI_API_KEY) return config.GEMINI_API_KEY;
             } catch (e) { }
         }
