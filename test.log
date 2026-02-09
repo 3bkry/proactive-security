@@ -5,3 +5,4 @@ ATTACK DETECTED: SQL INJECTION
 2026-02-09 20:07:00 ERROR: Unauthorized access attempt from 192.168.1.100
 2026-02-09 20:09:00 ERROR: Unauthorized
 2026-02-09 20:16:00 CRITICAL: Root login attempt from 10.0.0.50
+2026-02-09 20:30:00 ALERT: Unbanning logic check via Telegram
