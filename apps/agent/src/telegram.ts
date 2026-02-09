@@ -62,9 +62,11 @@ export class TelegramNotifier {
                     this.bot.onText(/\/help/, (msg) => {
                         if (String(msg.chat.id) !== String(this.chatId)) return;
                         const helpMsg = `🛡️ *SentinelAI Bot Help*\n\n` +
-                            `/status - Check server & security status\n` +
+                            `/status - Server resources & security status\n` +
                             `/stats - AI analysis & cost stats\n` +
-                            `/banned - List currently blocked IPs\n` +
+                            `/banned - List blocked IPs\n` +
+                            `/watch <add|remove|list> [path] - Manage watched files\n` +
+                            `/config <cpu|memory|disk> <val> - Set alert thresholds\n` +
                             `/help - Show this message`;
                         this.bot?.sendMessage(msg.chat.id, helpMsg, { parse_mode: 'Markdown' });
                     });

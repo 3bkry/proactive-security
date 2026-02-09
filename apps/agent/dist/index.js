@@ -9,19 +9,23 @@ import { HeartbeatService } from "./heartbeat.js";
 import pty from "node-pty";
 // Global WebSocket Server
 const wss = new WebSocketServer({ port: 8081 });
+import { ResourceMonitor } from "./monitor.js";
 // Initialize Components
 const watcher = new LogWatcher();
 const aiManager = new AIManager();
 const banManager = new BanManager();
 const telegram = new TelegramNotifier(banManager);
 const heartbeat = new HeartbeatService(wss);
+const monitor = new ResourceMonitor(telegram);
 // Register Telegram Commands
 telegram.onCommand("status", async () => {
     const stats = await getSystemStats();
     const bannedCount = banManager.getBannedIPs().length;
     const msg = `🖥️ *Server Status*\n\n` +
         `*CPUs:* ${stats.cpus}\n` +
+        `*CPU Load:* ${stats.cpuLoad}%\n` +
         `*Memory:* ${stats.memoryUsage}%\n` +
+        `*Storage:* ${stats.diskUsage}%\n` +
         `*Uptime:* ${Math.floor(stats.uptime / 3600)}h ${Math.floor((stats.uptime % 3600) / 60)}m\n` +
         `*Banned IPs:* ${bannedCount}\n` +
         `*Active Watchers:* ${watcher.getWatchedFiles().length}`;
@@ -44,6 +48,57 @@ telegram.onCommand("banned", () => {
     const msg = `🚫 *Banned IPs (${banned.length})*\n\n` + banned.map(ip => `• \`${ip}\``).join("\n");
     telegram.sendMessage(msg);
 });
+telegram.onCommand("watch", (msg) => {
+    const args = msg.text?.split(" ") || [];
+    const action = args[1]; // add, remove, list
+    const path = args[2];
+    if (!action || action === "list") {
+        const files = watcher.getWatchedFiles();
+        if (files.length === 0)
+            telegram.sendMessage("📂 *No files currently watched.*");
+        else
+            telegram.sendMessage(`📂 *Watched Files:*\n` + files.map(f => `• \`${f}\``).join("\n"));
+        return;
+    }
+    if (!path) {
+        telegram.sendMessage("⚠️ Usage: `/watch <add|remove> <path>`");
+        return;
+    }
+    if (action === "add") {
+        if (!fs.existsSync(path)) {
+            telegram.sendMessage(`❌ File not found: \`${path}\``);
+            return;
+        }
+        watcher.add(path);
+        telegram.sendMessage(`✅ Added to watchlist: \`${path}\``);
+    }
+    else if (action === "remove") {
+        watcher.remove(path);
+        telegram.sendMessage(`🗑️ Removed from watchlist: \`${path}\``);
+    }
+});
+telegram.onCommand("config", (msg) => {
+    const args = msg.text?.split(" ") || [];
+    const key = args[1]?.toLowerCase();
+    const val = parseInt(args[2]);
+    if (!key || isNaN(val)) {
+        telegram.sendMessage("⚠️ Usage: `/config <cpu|memory|disk> <percentage>`\nExample: `/config cpu 90`");
+        return;
+    }
+    if (key === 'cpu')
+        monitor.thresholds.cpu = val;
+    else if (key === 'memory')
+        monitor.thresholds.memory = val;
+    else if (key === 'disk')
+        monitor.thresholds.disk = val;
+    else {
+        telegram.sendMessage("⚠️ Invalid key. Use cpu, memory, or disk.");
+        return;
+    }
+    telegram.sendMessage(`✅ Updated *${key.toUpperCase()}* threshold to **${val}%**`);
+});
+// Start Monitor
+monitor.start();
 // Start Heartbeat
 heartbeat.start();
 wss.on("connection", async (ws) => {
