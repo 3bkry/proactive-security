@@ -1,0 +1,7 @@
+Feb 10 10:00:00 Ubuntu-2204 sshd[12345]: Failed password for root from 192.168.1.100 port 22 ssh2
+Mon Feb  9 07:21:47 PM CET 2026 Attempting SQL injection: ' OR 1=1 --
+Mon Feb  9 07:31:04 PM CET 2026 WARNING: Remote login attempt from 192.168.1.10 for user 'root'
+ATTACK DETECTED: SQL INJECTION
+2026-02-09 20:07:00 ERROR: Unauthorized access attempt from 192.168.1.100
+2026-02-09 20:09:00 ERROR: Unauthorized
+2026-02-09 20:16:00 CRITICAL: Root login attempt from 10.0.0.50

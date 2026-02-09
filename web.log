@@ -1,0 +1,23 @@
+
+> web@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.3
+  - Local:        http://localhost:3000
+
+ ✓ Starting...
+npm warn config ignoring workspace config at /home/antigravity/sentinelctl/apps/web/.npmrc
+npm error code ENOWORKSPACES
+npm error This command does not support workspaces.
+npm error A complete log of this run can be found in: /home/antigravity/.npm/_logs/2026-02-09T02_40_22_824Z-debug-0.log
+ ✓ Ready in 1605ms
+ ○ Compiling / ...
+ ✓ Compiled / in 1249ms (509 modules)
+ GET / 200 in 1650ms
+ ✓ Compiled in 353ms (249 modules)
+ GET / 200 in 74ms
+ GET / 200 in 17ms
+ ✓ Compiled /favicon.ico in 386ms (290 modules)
+ GET /favicon.ico 200 in 456ms
+ GET / 200 in 129ms
+ GET /favicon.ico 200 in 17ms

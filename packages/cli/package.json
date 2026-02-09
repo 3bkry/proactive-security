@@ -1,0 +1,29 @@
+{
+    "name": "@sentinel/cli",
+    "version": "0.1.0",
+    "main": "dist/index.js",
+    "bin": {
+        "sentinelctl": "./bin/sentinelctl.js"
+    },
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc -w"
+    },
+    "dependencies": {
+        "@sentinel/core": "*",
+        "chalk": "4.1.2",
+        "commander": "^11.1.0",
+        "figlet": "^1.10.0",
+        "inquirer": "8.2.6",
+        "node-fetch": "^2.7.0",
+        "ora": "5.4.1"
+    },
+    "devDependencies": {
+        "@types/figlet": "^1.7.0",
+        "@types/inquirer": "^9.0.9",
+        "@types/node": "^20.10.0",
+        "@types/node-fetch": "^2.6.9",
+        "@types/node-telegram-bot-api": "^0.64.13",
+        "typescript": "^5.3.3"
+    }
+}

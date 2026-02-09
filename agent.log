@@ -1,0 +1,39 @@
+
+> @sentinel/agent@0.1.0 start
+> node dist/index.js
+
+Starting Sentinel Agent... using Core v0.1.0
+[CORE] Database initialized at /tmp/sentinel_verif.db
+[CORE] WebSocket Server started on port 8081
+[CORE] Watching: /tmp/sentinel_test.log
+[CORE] Agent initialized and watching.
+[CORE] Client connected
+[CORE] Terminal started: bash
+[CORE] Client disconnected
+[CORE] Terminal exited with code 0, signal 1
+[CORE] Client connected
+[CORE] Terminal started: bash
+[CORE] Client disconnected
+[CORE] Terminal exited with code 0, signal 1
+[CORE] Client connected
+[CORE] Terminal started: bash
+[CORE] Client disconnected
+[CORE] Terminal exited with code 0, signal 1
+[CORE] Client connected
+[CORE] Terminal started: bash
+[CORE] Client disconnected
+[CORE] Terminal exited with code 0, signal 1
+[CORE] Client connected
+[CORE] Terminal started: bash
+[CORE] Client disconnected
+[CORE] Terminal exited with code 0, signal 1
+[CORE] Client connected
+[CORE] Terminal started: bash
+Killed
+npm error Lifecycle script `start` failed with error:
+npm error code 137
+npm error path /home/antigravity/sentinelctl/apps/agent
+npm error workspace @sentinel/agent@0.1.0
+npm error location /home/antigravity/sentinelctl/apps/agent
+npm error command failed
+npm error command sh -c node dist/index.js

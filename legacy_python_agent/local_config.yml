@@ -1,0 +1,27 @@
+agent:
+  log_level: DEBUG
+  ipc_socket: /home/antigravity/sentinelctl/sentinel.sock
+
+database:
+  path: /tmp/sentinel.db
+
+logs:
+  discovery: false
+  sources:
+    - path: /tmp/test.log
+      type: nginx
+      enabled: true
+
+detection:
+  enabled: true
+  rules_path: /tmp/rules
+
+response:
+  enabled: false
+  dry_run: true
+
+notifications:
+  enabled: false
+
+cloud:
+  enabled: false

@@ -1,0 +1,147 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const commander_1 = require("commander");
+const core_1 = require("@sentinel/core");
+const child_process_1 = require("child_process");
+const path_1 = __importDefault(require("path"));
+const program = new commander_1.Command();
+program
+    .name('sentinelctl')
+    .description('Control SentinelAI Security Agent')
+    .version('0.1.0');
+const setup_1 = require("./setup");
+program
+    .command('setup')
+    .description('Run interactive onboarding wizard')
+    .action(async () => {
+    await (0, setup_1.runSetup)();
+});
+program
+    .command('start')
+    .description('Start the Sentinel Agent and Dashboard')
+    .action(() => {
+    console.log('Starting SentinelAI...');
+    const rootDir = path_1.default.resolve(__dirname, '../../..');
+    const agent = (0, child_process_1.spawn)('npm', ['start', '-w', 'apps/agent'], {
+        cwd: rootDir,
+        stdio: 'inherit',
+        env: { ...process.env, PORT: '8081' }
+    });
+    const web = (0, child_process_1.spawn)('npm', ['run', 'dev', '-w', 'apps/web'], {
+        cwd: rootDir,
+        stdio: 'inherit'
+    });
+    // Open browser after a slight delay
+    setTimeout(() => {
+        const url = 'http://localhost:3000';
+        const start = (process.platform == 'darwin' ? 'open' : process.platform == 'win32' ? 'start' : 'xdg-open');
+        (0, child_process_1.spawn)(start, [url]);
+        console.log(`\nDashboard opened at ${url}`);
+    }, 3000);
+    // Cleanup on exit
+    process.on('SIGINT', () => {
+        agent.kill();
+        web.kill();
+        process.exit();
+    });
+});
+program
+    .command('stop')
+    .description('Stop the Sentinel Agent and Dashboard')
+    .action(() => {
+    const { execSync } = require('child_process');
+    console.log('Stopping SentinelAI components...');
+    try {
+        // Kill processes on ports 3000 and 8081
+        execSync('fuser -k 3000/tcp 8081/tcp 2>/dev/null || true');
+        console.log('✅ Services stopped successfully.');
+    }
+    catch (e) {
+        console.error('❌ Failed to stop services cleanly.');
+    }
+});
+program
+    .command('ban <ip>')
+    .description('Manually ban an IP address (Requires ROOT)')
+    .action((ip) => {
+    const { execSync } = require('child_process');
+    console.log(`🛡️ Banning IP: ${ip}...`);
+    try {
+        // Check for root
+        if (process.getuid && process.getuid() !== 0) {
+            console.warn('⚠️ Warning: This command usually requires root privileges (sudo).');
+        }
+        // Apply iptables rule
+        execSync(`iptables -A INPUT -s ${ip} -j DROP`);
+        console.log(`✅ IP ${ip} has been blocked via iptables.`);
+    }
+    catch (e) {
+        console.error(`❌ Failed to ban IP: ${e.message}`);
+        console.log('Ensure you are running this as root/sudo.');
+    }
+});
+program
+    .command('config <key> <value>')
+    .description('Manage configuration')
+    .action((key, value) => {
+    // TODO: Implement actual config storage
+    console.log(`Setting ${key} = ${value}`);
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    // Simple config file in home dir for now
+    const configDir = path.join(os.homedir(), '.sentinel');
+    if (!fs.existsSync(configDir))
+        fs.mkdirSync(configDir, { recursive: true });
+    const configFile = path.join(configDir, 'config.json');
+    let config = {};
+    if (fs.existsSync(configFile)) {
+        try {
+            config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+        }
+        catch (e) { }
+    }
+    config[key] = value;
+    fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+    (0, core_1.log)(`Configuration saved to ${configFile}`);
+});
+program
+    .command('watch <file>')
+    .description('Add a log file to be monitored')
+    .action((file) => {
+    const fs = require('fs');
+    const os = require('os');
+    const path = require('path');
+    const absPath = path.resolve(file);
+    if (!fs.existsSync(absPath)) {
+        console.error(`Error: File does not exist: ${absPath}`);
+        process.exit(1);
+    }
+    const configDir = path.join(os.homedir(), '.sentinel');
+    if (!fs.existsSync(configDir))
+        fs.mkdirSync(configDir, { recursive: true });
+    const configFile = path.join(configDir, 'config.json');
+    let config = {};
+    if (fs.existsSync(configFile)) {
+        try {
+            config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+        }
+        catch (e) { }
+    }
+    const watchList = config.WATCH_FILES || [];
+    if (!watchList.includes(absPath)) {
+        watchList.push(absPath);
+        config.WATCH_FILES = watchList;
+        fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+        (0, core_1.log)(`Added ${absPath} to watch list.`);
+        (0, core_1.log)(`Restart agent to apply changes: sentinelctl start`);
+    }
+    else {
+        (0, core_1.log)(`${absPath} is already being watched.`);
+    }
+});
+program.parse(process.argv);
+//# sourceMappingURL=index.js.map

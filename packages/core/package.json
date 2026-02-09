@@ -1,0 +1,19 @@
+{
+    "name": "@sentinel/core",
+    "version": "0.1.0",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "lint": "eslint src/**",
+        "test": "jest"
+    },
+    "dependencies": {
+        "better-sqlite3": "^9.6.0",
+        "zod": "^3.22.4"
+    },
+    "devDependencies": {
+        "@types/better-sqlite3": "^7.6.13",
+        "typescript": "^5.3.3"
+    }
+}
