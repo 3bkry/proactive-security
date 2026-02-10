@@ -61,7 +61,7 @@ export class OWASPScanner {
         {
             category: "A05:2025-Injection (SQLi)",
             risk: "HIGH",
-            pattern: /union\s+all\s+select|select\s+.*from|sleep\(|benchmark\(|waitfor\s+delay|pg_sleep|load_file\(|into\s+outfile|' OR '1'='1|--|#|\/\*/i,
+            pattern: /union\s+all\s+select|select\s+.*from|sleep\(|benchmark\(|waitfor\s+delay|pg_sleep|load_file\(|into\s+outfile|' OR '1'='1|--|#|\/\*|information_schema|syscolumns|sysobjects/i,
             summary: "SQL injection attempt (classic or time-based)",
             confidence: "HIGH"
         },
@@ -75,14 +75,14 @@ export class OWASPScanner {
         {
             category: "A05:2025-Injection (XSS)",
             risk: "HIGH",
-            pattern: /<script|javascript:|onerror=|onload=|alert\(|document\.cookie|data:text\/html|<svg|<iframe/i,
+            pattern: /<script|javascript:|onerror=|onload=|alert\(|document\.cookie|data:text\/html|<svg|<iframe|<object|<embed|<base|onmouseover=/i,
             summary: "Cross-site scripting payload detected",
             confidence: "HIGH"
         },
         {
             category: "A05:2025-Injection (OS Command)",
             risk: "HIGH",
-            pattern: /(;|\|\||&&|`|\$\().*(sh|bash|curl|wget|nc|python|perl|php|rm|cat|ls|whoami)/i,
+            pattern: /(;|\|\||&&|`|\$\().*(sh|bash|curl|wget|nc|python|perl|php|rm|cat|ls|whoami|ifconfig|netstat|nmap)/i,
             summary: "OS command injection attempt",
             confidence: "HIGH"
         },
@@ -99,23 +99,30 @@ export class OWASPScanner {
         {
             category: "A01:2025-Broken Access Control (SSRF)",
             risk: "HIGH",
-            pattern: /169\.254\.169\.254|metadata\.google\.internal|instance-data\.amazonaws\.com|localhost|127\.0\.0\.1|file:\/\//i,
-            summary: "SSRF attempt targeting internal or cloud metadata services",
+            pattern: /169\.254\.169\.254|metadata\.google\.internal|instance-data\.amazonaws\.com|localhost|127\.0\.0\.1|file:\/\/|gopher:\/\/|data:\/\/|tftp:\/\/|expect:\/\/|php:\/\/filter/i,
+            summary: "SSRF or protocol handler bypass attempt targeting internal or cloud metadata services",
             confidence: "HIGH"
         },
         {
             category: "A01:2025-Broken Access Control (Path Traversal)",
             risk: "HIGH",
-            pattern: /\.\.\/|\.\.\\|%2e%2e%2f|\/etc\/passwd|\/proc\/self|win\.ini/i,
+            pattern: /\.\.\/|\.\.\\|%2e%2e%2f|\/etc\/passwd|\/proc\/self|win\.ini|Windows\\System32|etc\/shadow/i,
             summary: "Path traversal or local file inclusion attempt",
             confidence: "HIGH"
         },
         {
             category: "A01:2025-Broken Access Control (Sensitive Files)",
             risk: "HIGH",
-            pattern: /\.env|\.git\/|id_rsa|\.dockerconfigjson|config\.ya?ml|secrets\.yml|\.kube\/config/i,
-            summary: "Attempt to access secrets or configuration files",
+            pattern: /\.env|\.git\/|id_rsa|\.dockerconfigjson|config\.ya?ml|secrets\.yml|\.kube\/config|prisma\/schema\.prisma/i,
+            summary: "Attempt to access secrets, configuration, or Prisma schema",
             confidence: "HIGH"
+        },
+        {
+            category: "A01:2025-Broken Access Control (Next.js Probing)",
+            risk: "MEDIUM",
+            pattern: /_next\/static|_next\/data|\/_next\/image|\/_next\/webpack-hmr/i,
+            summary: "Probing of Next.js internal static or data directories",
+            confidence: "MEDIUM"
         },
 
         /* ===================== DESERIALIZATION / XXE ===================== */
@@ -123,8 +130,8 @@ export class OWASPScanner {
         {
             category: "A08:2025-Insecure Deserialization / XXE",
             risk: "HIGH",
-            pattern: /<!DOCTYPE|<!ENTITY.*SYSTEM|ACED0005|rO0AB/i,
-            summary: "Insecure deserialization or XXE payload detected",
+            pattern: /<!DOCTYPE|<!ENTITY.*SYSTEM|ACED0005|rO0AB|\[serialization\]|JSON\.parse\(.*\.toString\(\)|node-serialize/i,
+            summary: "Insecure deserialization, XXE, or Node.js serialization payload",
             confidence: "HIGH"
         },
 
@@ -133,8 +140,8 @@ export class OWASPScanner {
         {
             category: "A07:2025-Authentication Failures (JWT)",
             risk: "HIGH",
-            pattern: /"alg"\s*:\s*"none"|eyJhbGc.*\./i,
-            summary: "JWT manipulation or none-algorithm attack",
+            pattern: /"alg"\s*:\s*"none"|eyJhbGc.*\.|"kid"\s*:\s*"\.\.\/|jwt-secret/i,
+            summary: "JWT manipulation, none-algorithm, or path traversal in kid",
             confidence: "MEDIUM"
         },
         {
@@ -150,15 +157,15 @@ export class OWASPScanner {
         {
             category: "A02:2025-Security Misconfiguration",
             risk: "MEDIUM",
-            pattern: /phpinfo\(\)|server-status|actuator\/|swagger-ui|debug|trace\.axd|\.git\/HEAD/i,
+            pattern: /phpinfo\(\)|server-status|actuator\/|swagger-ui|debug|trace\.axd|\.git\/HEAD|\/metrics|\/_health/i,
             summary: "Debug endpoint or server information disclosure",
             confidence: "HIGH"
         },
         {
             category: "A10:2025-Exception Leakage",
             risk: "MEDIUM",
-            pattern: /StackTrace|NullPointerException|Fatal error|Traceback \(most recent call last\)/i,
-            summary: "Application exception details leaked",
+            pattern: /StackTrace|NullPointerException|Fatal error|Traceback|ERR_HTTP_INVALID_CHAR|ERR_INVALID_URL|P2002|PrismaClientKnownRequestError/i,
+            summary: "Application exception details or Prisma error leaked",
             confidence: "HIGH"
         },
 
@@ -167,8 +174,8 @@ export class OWASPScanner {
         {
             category: "A03:2025-Software Supply Chain",
             risk: "HIGH",
-            pattern: /Jenkins|CircleCI|Travis|GitHub Actions|\.github\/workflows|Dockerfile|docker-compose|package-lock\.json|yarn\.lock/i,
-            summary: "CI/CD or dependency artifact targeting",
+            pattern: /Jenkins|CircleCI|Travis|GitHub Actions|\.github\/workflows|Dockerfile|docker-compose|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|\.npmrc|package\.json/i,
+            summary: "CI/CD, dependency artifacts, or Node.js package targeting",
             confidence: "MEDIUM"
         }
     ];
@@ -178,6 +185,7 @@ export class OWASPScanner {
     public static scan(rawLine: string): OWASPMatch[] {
         if (!rawLine) return [];
         try {
+            // Normalize: URL Decoding + Null-byte removal
             const line = decodeURIComponent(rawLine.toLowerCase().replace(/\0/g, ""));
             const matches: OWASPMatch[] = [];
 
@@ -197,7 +205,7 @@ export class OWASPScanner {
 
             return matches;
         } catch (e) {
-            // If decode fails, fallback to raw line
+            // If decode fails (e.g. malformed percent encoding), fallback to raw line normalization
             const line = rawLine.toLowerCase().replace(/\0/g, "");
             const matches: OWASPMatch[] = [];
             for (const rule of this.rules) {
