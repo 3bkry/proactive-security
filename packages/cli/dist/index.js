@@ -143,21 +143,18 @@ program
     (0, core_1.log)(`Configuration saved to ${configFile}`);
 });
 program
-    .command('watch <file>')
-    .description('Add a log file to be monitored')
-    .action((file) => {
+    .command('watch <path>')
+    .description('Add a log file or directory (recursive) to be monitored')
+    .action((inputPath) => {
     const fs = require('fs');
     const os = require('os');
     const path = require('path');
-    const absPath = path.resolve(file);
+    const absPath = path.resolve(inputPath);
     if (!fs.existsSync(absPath)) {
-        console.error(`Error: File does not exist: ${absPath}`);
+        console.error(`Error: Path does not exist: ${absPath}`);
         process.exit(1);
     }
-    const configDir = path.join(os.homedir(), '.sentinel');
-    if (!fs.existsSync(configDir))
-        fs.mkdirSync(configDir, { recursive: true });
-    const configFile = path.join(configDir, 'config.json');
+    const configFile = core_1.CONFIG_FILE;
     let config = {};
     if (fs.existsSync(configFile)) {
         try {
@@ -166,15 +163,47 @@ program
         catch (e) { }
     }
     const watchList = config.WATCH_FILES || [];
-    if (!watchList.includes(absPath)) {
-        watchList.push(absPath);
+    const addedFiles = [];
+    const addFile = (p) => {
+        if (!watchList.includes(p)) {
+            watchList.push(p);
+            addedFiles.push(p);
+        }
+    };
+    const scanRecursive = (dir, depth = 0) => {
+        if (depth > 3)
+            return;
+        const items = fs.readdirSync(dir);
+        items.forEach((item) => {
+            const fullPath = path.join(dir, item);
+            const stats = fs.statSync(fullPath);
+            if (stats.isFile() && item.endsWith('.log')) {
+                addFile(fullPath);
+            }
+            else if (stats.isDirectory() && !item.startsWith('.') && item !== 'node_modules') {
+                scanRecursive(fullPath, depth + 1);
+            }
+        });
+    };
+    const stats = fs.statSync(absPath);
+    if (stats.isFile()) {
+        addFile(absPath);
+    }
+    else if (stats.isDirectory()) {
+        console.log(`🔍 Scanning directory recursively: ${absPath}`);
+        scanRecursive(absPath);
+    }
+    if (addedFiles.length > 0) {
         config.WATCH_FILES = watchList;
         fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
-        (0, core_1.log)(`Added ${absPath} to watch list.`);
+        (0, core_1.log)(`Added ${addedFiles.length} file(s) to watch list.`);
+        if (addedFiles.length < 10) {
+            addedFiles.forEach(f => (0, core_1.log)(`  + ${f}`));
+        }
         (0, core_1.log)(`Restart agent to apply changes: sentinelctl start`);
     }
     else {
-        (0, core_1.log)(`${absPath} is already being watched.`);
+        (0, core_1.log)(`No new .log files found to watch.`);
     }
 });
 program.parse(process.argv);

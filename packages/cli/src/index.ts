@@ -156,23 +156,20 @@ program
     });
 
 program
-    .command('watch <file>')
-    .description('Add a log file to be monitored')
-    .action((file: string) => {
+    .command('watch <path>')
+    .description('Add a log file or directory (recursive) to be monitored')
+    .action((inputPath: string) => {
         const fs = require('fs');
         const os = require('os');
         const path = require('path');
 
-        const absPath = path.resolve(file);
+        const absPath = path.resolve(inputPath);
         if (!fs.existsSync(absPath)) {
-            console.error(`Error: File does not exist: ${absPath}`);
+            console.error(`Error: Path does not exist: ${absPath}`);
             process.exit(1);
         }
 
-        const configDir = path.join(os.homedir(), '.sentinel');
-        if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
-
-        const configFile = path.join(configDir, 'config.json');
+        const configFile = CONFIG_FILE;
         let config: any = {};
         if (fs.existsSync(configFile)) {
             try {
@@ -181,14 +178,47 @@ program
         }
 
         const watchList = config.WATCH_FILES || [];
-        if (!watchList.includes(absPath)) {
-            watchList.push(absPath);
+        const addedFiles: string[] = [];
+
+        const addFile = (p: string) => {
+            if (!watchList.includes(p)) {
+                watchList.push(p);
+                addedFiles.push(p);
+            }
+        };
+
+        const scanRecursive = (dir: string, depth = 0) => {
+            if (depth > 3) return;
+            const items = fs.readdirSync(dir);
+            items.forEach((item: string) => {
+                const fullPath = path.join(dir, item);
+                const stats = fs.statSync(fullPath);
+                if (stats.isFile() && item.endsWith('.log')) {
+                    addFile(fullPath);
+                } else if (stats.isDirectory() && !item.startsWith('.') && item !== 'node_modules') {
+                    scanRecursive(fullPath, depth + 1);
+                }
+            });
+        };
+
+        const stats = fs.statSync(absPath);
+        if (stats.isFile()) {
+            addFile(absPath);
+        } else if (stats.isDirectory()) {
+            console.log(`🔍 Scanning directory recursively: ${absPath}`);
+            scanRecursive(absPath);
+        }
+
+        if (addedFiles.length > 0) {
             config.WATCH_FILES = watchList;
             fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
-            log(`Added ${absPath} to watch list.`);
+            log(`Added ${addedFiles.length} file(s) to watch list.`);
+            if (addedFiles.length < 10) {
+                addedFiles.forEach(f => log(`  + ${f}`));
+            }
             log(`Restart agent to apply changes: sentinelctl start`);
         } else {
-            log(`${absPath} is already being watched.`);
+            log(`No new .log files found to watch.`);
         }
     });
 

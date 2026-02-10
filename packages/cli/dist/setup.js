@@ -39,79 +39,61 @@ async function runSetup() {
         '/home/antigravity/sentinelctl/test.log'
     ];
     // Dynamic Discovery for PHP and others
-    const discoveryPaths = [
+    const discoveryRoots = [
         '/var/log',
-        '/var/log/php',
-        '/var/log/apache2',
-        '/var/log/nginx',
-        '/var/log/mysql',
-        '/var/log/pm2',
-        path_1.default.join(os_1.default.homedir(), '.pm2/logs'),
+        '/var/www',
+        '/home',
         '/usr/local/var/log', // Homebrew etc
     ];
     const detectedLogsSet = new Set();
+    const scanLogsRecursive = (dir, depth = 0) => {
+        if (depth > 4)
+            return; // Limit depth to prevent performance issues
+        if (!fs_1.default.existsSync(dir) || !fs_1.default.statSync(dir).isDirectory())
+            return;
+        // Skip sensitive or massive directories
+        const basename = path_1.default.basename(dir);
+        if (basename.startsWith('.') || basename === 'node_modules' || basename === 'vendor' || basename === 'cache')
+            return;
+        try {
+            const items = fs_1.default.readdirSync(dir);
+            items.forEach(item => {
+                const fullPath = path_1.default.join(dir, item);
+                try {
+                    const stats = fs_1.default.statSync(fullPath);
+                    if (stats.isFile()) {
+                        const lower = item.toLowerCase();
+                        // 1. Freshness Check (30 days)
+                        const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+                        if (stats.mtimeMs < thirtyDaysAgo)
+                            return;
+                        // 2. Strict Identification: Must end in .log or be a core system log
+                        const endsWithLog = lower.endsWith(".log");
+                        const isCore = lower === "syslog" || lower === "auth.log" || lower === "kern.log" || lower === "secure";
+                        // 3. Exclusion Filters
+                        const isCompressed = lower.endsWith(".gz") || lower.endsWith(".zip") || lower.endsWith(".tar");
+                        const isRotated = /\.\d+$/.test(lower) || lower.includes(".log.");
+                        const isBackup = lower.includes(".bak") || lower.includes(".old") || lower.includes(".backup") || lower.includes("-202");
+                        if ((endsWithLog || isCore) && !isCompressed && !isRotated && !isBackup) {
+                            detectedLogsSet.add(fullPath);
+                        }
+                    }
+                    else if (stats.isDirectory()) {
+                        scanLogsRecursive(fullPath, depth + 1);
+                    }
+                }
+                catch (e) { }
+            });
+        }
+        catch (e) { }
+    };
     // Check static list
     POTENTIAL_LOGS.forEach(p => {
         if (fs_1.default.existsSync(p))
             detectedLogsSet.add(p);
     });
-    // Scan directories (one level deep)
-    discoveryPaths.forEach(dir => {
-        if (fs_1.default.existsSync(dir) && fs_1.default.statSync(dir).isDirectory()) {
-            try {
-                const items = fs_1.default.readdirSync(dir);
-                items.forEach(item => {
-                    const fullPath = path_1.default.join(dir, item);
-                    try {
-                        if (fs_1.default.existsSync(fullPath)) {
-                            const stats = fs_1.default.statSync(fullPath);
-                            if (stats.isFile()) {
-                                const lower = item.toLowerCase();
-                                // 1. MANDATORY Freshness Check (30 days)
-                                const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-                                if (stats.mtimeMs < thirtyDaysAgo)
-                                    return;
-                                // 2. Strict Identification
-                                const endsWithLog = lower.endsWith(".log");
-                                const isCore = lower === "syslog" || lower === "auth.log" || lower === "kern.log";
-                                // 3. Strict filters
-                                const isCompressed = lower.endsWith(".gz") || lower.endsWith(".zip") || lower.endsWith(".tar");
-                                const isRotated = /\.\d+$/.test(lower) || lower.includes(".log.");
-                                const isBackup = lower.includes(".bak") || lower.includes(".old") || lower.includes(".backup") || lower.includes("-202");
-                                if ((endsWithLog || isCore) && !isCompressed && !isRotated && !isBackup) {
-                                    detectedLogsSet.add(fullPath);
-                                }
-                            }
-                            else if (stats.isDirectory()) {
-                                const subFiles = fs_1.default.readdirSync(fullPath);
-                                subFiles.forEach(sf => {
-                                    const subPath = path_1.default.join(fullPath, sf);
-                                    if (fs_1.default.existsSync(subPath)) {
-                                        const sStats = fs_1.default.statSync(subPath);
-                                        if (sStats.isFile()) {
-                                            const slower = sf.toLowerCase();
-                                            const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-                                            if (sStats.mtimeMs < thirtyDaysAgo)
-                                                return;
-                                            const sEndsLog = slower.endsWith(".log");
-                                            const sCompressed = slower.endsWith(".gz") || slower.endsWith(".zip") || slower.endsWith(".tar");
-                                            const sRotated = /\.\d+$/.test(slower) || slower.includes(".log.");
-                                            const sBackup = slower.includes(".bak") || slower.includes(".old") || slower.includes(".backup") || slower.includes("-202");
-                                            if (sEndsLog && !sCompressed && !sRotated && !sBackup) {
-                                                detectedLogsSet.add(subPath);
-                                            }
-                                        }
-                                    }
-                                });
-                            }
-                        }
-                    }
-                    catch (e) { }
-                });
-            }
-            catch (e) { }
-        }
-    });
+    // Run recursive scan on roots
+    discoveryRoots.forEach(root => scanLogsRecursive(root));
     const detectedLogs = Array.from(detectedLogsSet).sort();
     // Add custom option
     const logChoices = detectedLogs.map(l => ({ name: l, checked: true }));
