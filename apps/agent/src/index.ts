@@ -359,9 +359,11 @@ watcher.on("file_changed", async (path) => {
 
         // 3. SPECIAL HANDLING: OWASP Local Rules (Priority 1)
         let result = null;
+        let isLocalMatch = false;
 
         const owaspMatch = OWASPScanner.scan(lastLine);
         if (owaspMatch) {
+            isLocalMatch = true;
             // Extract IP if possible
             const ipMatch = lastLine.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
             const ip = ipMatch ? ipMatch[0] : undefined;
@@ -375,12 +377,11 @@ watcher.on("file_changed", async (path) => {
                 tokens: 0,
                 usage: { totalTokens: aiManager.totalTokens, totalCost: aiManager.totalCost, requestCount: aiManager.requestCount }
             };
-            log(`[Defense] 🛡️ OWASP Match: ${owaspMatch.category} detected locally.`);
+            log(`[Defense] 🛡️ OWASP Match: ${owaspMatch.category} detected locally (Shield Mode).`);
         }
         else if (path.endsWith("auth.log") || path.endsWith("secure")) {
             const authFailPattern = /failed|failure|invalid user|authentication error|refused|disconnect/i;
             if (authFailPattern.test(lastLine)) {
-                // Extract IP if possible
                 const ipMatch = lastLine.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
                 const ip = ipMatch ? ipMatch[0] : undefined;
 
@@ -394,7 +395,7 @@ watcher.on("file_changed", async (path) => {
                 };
             }
         } else {
-            // Normal AI Analysis for other logs (Secondary Verification)
+            // Normal AI Analysis for other logs (Secondary Verification / Discovery)
             result = await aiManager.analyze(lastLine);
         }
 
@@ -408,7 +409,7 @@ watcher.on("file_changed", async (path) => {
                             totalTokens: aiManager.totalTokens,
                             totalCost: aiManager.totalCost,
                             requestCount: aiManager.requestCount,
-                            model: "Gemini 1.5 Flash"
+                            model: aiManager.model
                         }
                     }));
                 }
@@ -422,11 +423,13 @@ watcher.on("file_changed", async (path) => {
             if (result.risk !== "SAFE" && result.risk !== "LOW") {
                 log(`[AI ALERT] ${result.risk} on ${path}: ${result.summary}`);
 
+                // Send initial alert
+                const alertData = { ...result, timestamp: new Date().toISOString(), source: path };
                 wss.clients.forEach(client => {
                     if (client.readyState === WebSocket.OPEN) {
                         client.send(JSON.stringify({
                             type: "alert",
-                            data: { ...result, timestamp: new Date().toISOString(), source: path }
+                            data: alertData
                         }));
                     }
                 });
@@ -435,26 +438,47 @@ watcher.on("file_changed", async (path) => {
                     telegram.sendAlert(result.risk, `${result.summary} (Source: ${path})`, result.ip);
                 }
 
+                // Execute Defense
                 if (result.ip && (result.risk === "HIGH" || result.risk === "MEDIUM")) {
                     if ((result as any).immediate) {
                         log(`[Active Defense] 🔥 IMMEDIATE BAN TRIGGERED for IP ${result.ip}`);
                         await banManager.banIP(result.ip, result.summary);
                         telegram.notifyBan(result.ip, result.summary);
                         if (cloudClient) {
-                            cloudClient.sendAlert("IP_BANNED", `IP ${result.ip} banned immediately (Local Rules Match).`, { ip: result.ip, reason: result.summary });
+                            cloudClient.sendAlert("IP_BANNED", `IP ${result.ip} banned immediately (Shield Mode).`, { ip: result.ip, reason: result.summary });
                         }
                     } else {
                         const strikes = banManager.addStrike(result.ip);
-                        log(`[Active Defense] Strike ${strikes}/5 for IP ${result.ip}`);
-
                         if (strikes >= banManager.MAX_STRIKES) {
                             await banManager.banIP(result.ip);
                             telegram.notifyBan(result.ip, "has exceeded strike limit.");
                             if (cloudClient) {
-                                cloudClient.sendAlert("IP_BANNED", `IP ${result.ip} banned after ${banManager.MAX_STRIKES} strikes.`, { ip: result.ip, reason: "Excessive suspicious activity" });
+                                cloudClient.sendAlert("IP_BANNED", `IP ${result.ip} banned after exceeding strike limit.`, { ip: result.ip, reason: "Excessive suspicious activity" });
                             }
                         }
                     }
+                }
+
+                // Background Forensic Enrichment (The "Super Power")
+                if (isLocalMatch && aiManager.initialized) {
+                    (async () => {
+                        log(`[AI] ⚡ Initiating forensic enrichment for local match...`);
+                        const enriched = await aiManager.enrichAnalysis(lastLine, result);
+                        if (enriched.isEnriched) {
+                            log(`[AI] 🧠 Forensics complete: ${enriched.forensics.target}`);
+                            // Broadcast update to dashboard
+                            wss.clients.forEach(client => {
+                                if (client.readyState === WebSocket.OPEN) {
+                                    client.send(JSON.stringify({
+                                        type: "alert_update",
+                                        data: { ...enriched, timestamp: alertData.timestamp, source: path }
+                                    }));
+                                }
+                            });
+                            // Optional: Send enriched detail to Telegram too?
+                            // telegram.sendAlert("INFO", `[Forensics] Target: ${enriched.forensics.target}\nIntent: ${enriched.forensics.intent}`, result.ip);
+                        }
+                    })();
                 }
             }
         }

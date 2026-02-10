@@ -337,5 +337,74 @@ Respond ONLY with this JSON structure:
             return "Risk analysis failure (404/Connection). Check API Key and Model availability.";
         }
     }
+    async enrichAnalysis(logLine, initialResult) {
+        if (!this.initialized)
+            return initialResult;
+        if (this.rateLimitCooldown > Date.now())
+            return initialResult;
+        const maxLen = 1000;
+        const truncatedLine = logLine.length > maxLen ? logLine.substring(0, maxLen) + "...[truncated]" : logLine;
+        const prompt = `You are a Lead Forensic Security Architect.
+A local rule engine has already flagged the following log as suspicious.
+I need you to perform a DEEP FORENSIC ENRICHMENT.
+
+Log: "{{log}}"
+Heuristic Finding: {{summary}}
+Initial Risk: {{risk}}
+
+Your task:
+1. Identify the specific vulnerability or component being targeted.
+2. Formulate a technical explanation of the exploit's intent.
+3. Predict the attacker's likely next step if this succeeds.
+4. Recommend advanced mitigation beyond just blocking the IP.
+
+Respond ONLY with this JSON structure:
+{
+  "risk": "HIGH",
+  "summary": "Detailed technical forensic summary",
+  "forensics": {
+    "target": "The specific component or exploit (e.g., 'CVE-2023-xxxx' or 'PHP-Wrapper bypass')",
+    "intent": "Attacker's likely goal",
+    "prediction": "What the attacker will do next",
+    "mitigation": "Advanced defensive steps"
+  }
+}
+`
+            .replace("{{log}}", truncatedLine)
+            .replace("{{summary}}", initialResult.summary)
+            .replace("{{risk}}", initialResult.risk);
+        try {
+            let enrichedResult;
+            if (this.provider === "gemini" && this.geminiClient) {
+                const response = await this.geminiClient.models.generateContent({
+                    model: this.model,
+                    contents: prompt,
+                    config: { temperature: 0.1 }
+                });
+                const text = response.text || "{}";
+                enrichedResult = JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim());
+            }
+            else if ((this.provider === "openai" || this.provider === "zhipu") && this.openaiClient) {
+                const response = await this.openaiClient.chat.completions.create({
+                    model: this.model,
+                    messages: [{ role: "user", content: prompt }],
+                    response_format: { type: "json_object" }
+                });
+                enrichedResult = JSON.parse(response.choices[0].message.content || "{}");
+            }
+            if (enrichedResult && enrichedResult.forensics) {
+                return {
+                    ...initialResult,
+                    summary: enrichedResult.summary,
+                    forensics: enrichedResult.forensics,
+                    isEnriched: true
+                };
+            }
+        }
+        catch (e) {
+            log(`[AI] Forensic enrichment failed: ${e}`);
+        }
+        return initialResult;
+    }
 }
 //# sourceMappingURL=ai.js.map

@@ -46,4 +46,5 @@ export declare class AIManager {
     } | null>;
     summarizeIncidents(incidents: any[]): Promise<string>;
     getRiskInsight(logEntry: any): Promise<string>;
+    enrichAnalysis(logLine: string, initialResult: any): Promise<any>;
 }
