@@ -36,6 +36,28 @@ const startWebSocketServer = async (startPort) => {
 };
 // Global WebSocket Server (Dynamic Port)
 const { wss, port: selectedPort } = await startWebSocketServer(8081);
+wss.on('connection', (ws) => {
+    ws.on('message', async (message) => {
+        try {
+            const data = JSON.parse(message.toString());
+            if (data.type === "TRUNCATE_LOG") {
+                const targetPath = data.path;
+                if (targetPath && fs.existsSync(targetPath)) {
+                    log(`[Agent] 🗑️ Truncating large log file: ${targetPath}`);
+                    fs.truncateSync(targetPath, 0);
+                    // Force re-add to watcher if it was skipped
+                    if (watcher.add(targetPath)) {
+                        tailAndWatch(targetPath);
+                    }
+                    ws.send(JSON.stringify({ type: "command_result", success: true, message: "Log truncated successfully." }));
+                }
+            }
+        }
+        catch (e) {
+            log(`[Agent] Failed to handle WS message: ${e}`);
+        }
+    });
+});
 // Safety & Warmup Configuration
 const args = process.argv.slice(2);
 const isSafeMode = args.includes("--safe") || fs.existsSync("/etc/sentinel/SAFE_MODE");
@@ -555,20 +577,46 @@ watcher.on("file_changed", async (path) => {
 watcher.on("file_added", async (path) => {
     await tailAndWatch(path);
 });
+watcher.on("file_too_large", (path, size) => {
+    const sizeMB = (size / 1024 / 1024).toFixed(2);
+    log(`[Agent] ⚠️ Large file detected: ${path} (${sizeMB} MB). notifying dashboard.`);
+    const alertData = {
+        risk: "MEDIUM",
+        summary: `Log file too large (${sizeMB} MB). Skipped to prevent instability.`,
+        source: path,
+        ip: "N/A",
+        action: "Clear Log File", // Hint to frontend
+        timestamp: new Date().toISOString(),
+        meta: { type: "file_too_large", path: path, size: size }
+    };
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({
+                type: "alert",
+                data: alertData
+            }));
+        }
+    });
+    if (cloudClient) {
+        cloudClient.sendAlert("LOG_TOO_LARGE", `Log file ${path} matches size limit (${sizeMB} MB).`, { path, size });
+    }
+});
 // Load config and watch files
 const configPath = CONFIG_FILE;
 if (fs.existsSync(configPath)) {
     const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
     if (config.LOG_PATHS) {
         for (const logPath of config.LOG_PATHS) {
-            watcher.add(logPath);
-            tailAndWatch(logPath);
+            if (watcher.add(logPath)) {
+                tailAndWatch(logPath);
+            }
         }
     }
     if (config.WATCH_FILES) {
         for (const watchFile of config.WATCH_FILES) {
-            watcher.add(watchFile);
-            tailAndWatch(watchFile);
+            if (watcher.add(watchFile)) {
+                tailAndWatch(watchFile);
+            }
         }
     }
 }

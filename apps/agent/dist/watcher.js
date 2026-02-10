@@ -48,8 +48,23 @@ export class LogWatcher extends EventEmitter {
         });
     }
     add(path) {
+        try {
+            if (fs.existsSync(path)) {
+                const stats = fs.statSync(path);
+                const maxSize = 20 * 1024 * 1024; // 20MB
+                if (stats.size > maxSize) {
+                    log(`[Watcher] ⚠️ Skipping large file (>20MB): ${path}`);
+                    this.emit("file_too_large", path, stats.size);
+                    return false;
+                }
+            }
+        }
+        catch (e) {
+            return false;
+        }
         this.watcher.add(path);
         log(`Watching: ${path}`);
+        return true;
     }
     remove(path) {
         this.watcher.unwatch(path);
