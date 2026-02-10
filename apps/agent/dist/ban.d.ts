@@ -10,6 +10,7 @@ export declare class BanManager {
     addStrike(ip: string): number;
     isBanned(ip: string): boolean;
     banIP(ip: string, reason?: string): Promise<boolean>;
+    private executeBan;
     unbanIP(ip: string): Promise<boolean>;
     private cleanupExpiredBans;
     getBannedIPs(): string[];

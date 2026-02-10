@@ -328,7 +328,28 @@ watcher.on("file_changed", async (path) => {
                 return;
             }
         }
-        const result = await aiManager.analyze(lastLine);
+        // 3. SPECIAL HANDLING: auth.log (Skip AI for cost/performance, use regex)
+        let result = null;
+        if (path.endsWith("auth.log") || path.endsWith("secure")) {
+            const authFailPattern = /failed|failure|invalid user|authentication error|refused|disconnect/i;
+            if (authFailPattern.test(lastLine)) {
+                // Extract IP if possible
+                const ipMatch = lastLine.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+                const ip = ipMatch ? ipMatch[0] : undefined;
+                result = {
+                    risk: "HIGH",
+                    summary: "Detected repeated authentication failure (Local Rule)",
+                    ip: ip,
+                    action: "Ban IP if repeated",
+                    tokens: 0,
+                    usage: { totalTokens: aiManager.totalTokens, totalCost: aiManager.totalCost, requestCount: aiManager.requestCount }
+                };
+            }
+        }
+        else {
+            // Normal AI Analysis for other logs
+            result = await aiManager.analyze(lastLine);
+        }
         if (result) {
             // Broadcast updated AI stats
             wss.clients.forEach(client => {
