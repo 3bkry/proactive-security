@@ -171,20 +171,6 @@ export async function runSetup() {
         },
         {
             type: 'confirm',
-            name: 'enableTelegram',
-            message: chalk.yellow('Enable Telegram Notifications? (Ensure the Sentinel Agent is STOPPED first)'),
-            default: !!config.TELEGRAM_BOT_TOKEN
-        },
-        {
-            type: 'input',
-            name: 'telegramToken',
-            message: 'Enter Telegram Bot Token:',
-            when: (answers: any) => answers.enableTelegram,
-            default: config.TELEGRAM_BOT_TOKEN || '',
-            validate: (input: string) => input.length > 10 || 'Token seems too short.'
-        },
-        {
-            type: 'confirm',
             name: 'enableCloud',
             message: chalk.magenta('Connect to Sentinel Cloud Dashboard? (Recommended)'),
             default: true
@@ -199,6 +185,20 @@ export async function runSetup() {
             },
             when: (answers: any) => answers.enableCloud,
             default: config.SENTINEL_AGENT_KEY || '',
+        },
+        {
+            type: 'confirm',
+            name: 'enableTelegram',
+            message: chalk.yellow('Enable Telegram Notifications? (Ensure the Sentinel Agent is STOPPED first)'),
+            default: !!config.TELEGRAM_BOT_TOKEN
+        },
+        {
+            type: 'input',
+            name: 'telegramToken',
+            message: 'Enter Telegram Bot Token:',
+            when: (answers: any) => answers.enableTelegram,
+            default: config.TELEGRAM_BOT_TOKEN || '',
+            validate: (input: string) => input.length > 10 || 'Token seems too short.'
         }
     ];
 
