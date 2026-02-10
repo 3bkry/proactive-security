@@ -39,12 +39,23 @@ program
 program
     .command('start')
     .description('Start the Sentinel Agent and Dashboard')
-    .action(() => {
+    .option('--safe', 'Start agent in Safe Mode (Observer Only)')
+    .action((options) => {
         const isCloud = !!process.env.SENTINEL_CLOUD_URL;
         console.log(isCloud ? '🚀 Starting SentinelAI Agent in Cloud Mode...' : '🚀 Starting SentinelAI (Local Mode)...');
+        if (options.safe) {
+            console.log('🛡️ ENABLED SAFE MODE: Active enforcement disabled.');
+        }
+
         const rootDir = path.resolve(__dirname, '../../..');
 
-        const agent = spawn('npm', ['start', '-w', 'apps/agent'], {
+        const agentArgs = ['start', '-w', 'apps/agent'];
+        if (options.safe) {
+            agentArgs.push('--');
+            agentArgs.push('--safe');
+        }
+
+        const agent = spawn('npm', agentArgs, {
             cwd: rootDir,
             stdio: 'inherit',
             env: { ...process.env, PORT: '8081' }
