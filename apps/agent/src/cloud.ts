@@ -12,7 +12,8 @@ export class CloudClient {
 
     constructor(
         private cloudUrl: string,
-        private agentKey: string
+        private agentKey: string,
+        private wsPort?: number
     ) {
         this.client = axios.create({
             baseURL: cloudUrl,
@@ -37,7 +38,8 @@ export class CloudClient {
                     hostname: stats.hostname,
                     platform: stats.platform,
                     version: "0.1.0",
-                    ip: this.getPublicIP(stats)
+                    ip: this.getPublicIP(stats),
+                    wsPort: this.wsPort
                 });
 
                 if (response.data.success) {
@@ -100,7 +102,8 @@ export class CloudClient {
                     disk: stats.disk,
                     uptime: stats.uptime
                 },
-                files
+                files,
+                wsPort: this.wsPort
             });
 
             if (response.data.commands && Array.isArray(response.data.commands)) {

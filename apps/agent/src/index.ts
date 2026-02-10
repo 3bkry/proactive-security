@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { WebSocketServer, WebSocket } from "ws";
 import * as fs from 'fs';
 import os from 'os';
@@ -60,7 +61,7 @@ let cloudClient: CloudClient | null = null;
 
 if (cloudUrl && agentKey) {
     log(`[Cloud] Configuration found. Initializing Cloud Client...`);
-    cloudClient = new CloudClient(cloudUrl, agentKey);
+    cloudClient = new CloudClient(cloudUrl, agentKey, selectedPort);
 
     cloudClient.connect().then(connected => {
         if (connected && cloudClient) {

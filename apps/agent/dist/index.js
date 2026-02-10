@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { WebSocketServer, WebSocket } from "ws";
 import * as fs from 'fs';
 import { LogWatcher } from "./watcher.js";
@@ -50,7 +51,7 @@ const agentKey = process.env.SENTINEL_AGENT_KEY;
 let cloudClient = null;
 if (cloudUrl && agentKey) {
     log(`[Cloud] Configuration found. Initializing Cloud Client...`);
-    cloudClient = new CloudClient(cloudUrl, agentKey);
+    cloudClient = new CloudClient(cloudUrl, agentKey, selectedPort);
     cloudClient.connect().then(connected => {
         if (connected && cloudClient) {
             log("[Cloud] Agent acts as a satellite node.");
