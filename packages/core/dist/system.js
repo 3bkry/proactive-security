@@ -57,14 +57,16 @@ async function getProcessStats(sortBy) {
         });
     });
 }
-async function getDiskHogs(dir = '/var/log') {
+async function getDiskHogs(dirs = ['/var/log', '/tmp', '/home']) {
     const { exec } = require('child_process');
+    const pathList = Array.isArray(dirs) ? dirs.join(' ') : dirs;
     return new Promise((resolve) => {
-        // Find top 5 largest files in dir, suppress errors
-        exec(`find ${dir} -type f -exec du -h {} + 2>/dev/null | sort -rh | head -n 5`, (err, stdout) => {
+        // Find top 5 largest files across specified paths, suppress errors and limit depth to avoid total system lockup
+        const command = `find ${pathList} -type f -size +10M -exec du -h {} + 2>/dev/null | sort -rh | head -n 5`;
+        exec(command, (err, stdout) => {
             if (err)
                 return resolve([]);
-            resolve(stdout.trim().split('\n'));
+            resolve(stdout.trim().split('\n').filter(line => line.trim() !== ''));
         });
     });
 }

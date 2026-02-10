@@ -142,10 +142,47 @@ export async function runSetup() {
             default: false
         },
         {
+            type: 'list',
+            name: 'aiProvider',
+            message: 'Select AI Provider:',
+            choices: [
+                { name: 'Google Gemini', value: 'gemini' },
+                { name: 'OpenAI', value: 'openai' },
+                { name: 'Zhipu AI (GLM-4)', value: 'zhipu' }
+            ],
+            default: config.AI_PROVIDER || 'gemini'
+        },
+        {
             type: 'input',
             name: 'geminiKey',
-            message: 'Enter your Google Gemini API Key (leave empty to skip):',
+            message: 'Enter your Google Gemini API Key:',
+            when: (answers: any) => answers.aiProvider === 'gemini',
             default: config.GEMINI_API_KEY || process.env.GEMINI_API_KEY || '',
+        },
+        {
+            type: 'input',
+            name: 'openaiKey',
+            message: 'Enter your OpenAI API Key:',
+            when: (answers: any) => answers.aiProvider === 'openai',
+            default: config.OPENAI_API_KEY || process.env.OPENAI_API_KEY || '',
+        },
+        {
+            type: 'input',
+            name: 'zhipuKey',
+            message: 'Enter your Zhipu GLM API Key:',
+            when: (answers: any) => answers.aiProvider === 'zhipu',
+            default: config.ZHIPU_API_KEY || process.env.ZHIPU_API_KEY || '',
+        },
+        {
+            type: 'input',
+            name: 'modelName',
+            message: 'Enter Model Name (e.g., gemini-1.5-flash, gpt-4o, glm-4-plus, glm4.7):',
+            default: (answers: any) => {
+                if (answers.aiProvider === 'gemini') return config.GEMINI_MODEL || 'gemini-1.5-flash';
+                if (answers.aiProvider === 'openai') return config.OPENAI_MODEL || 'gpt-4o';
+                if (answers.aiProvider === 'zhipu') return config.ZHIPU_MODEL || 'glm-4-plus';
+                return '';
+            }
         },
         {
             type: 'checkbox',
@@ -211,8 +248,30 @@ export async function runSetup() {
         log(chalk.dim('Existing monitored files cleared.'));
     }
 
+    if (answers.aiProvider) {
+        config.AI_PROVIDER = answers.aiProvider;
+    }
+
     if (answers.geminiKey) {
         config.GEMINI_API_KEY = answers.geminiKey;
+    }
+
+    if (answers.openaiKey) {
+        config.OPENAI_API_KEY = answers.openaiKey;
+    }
+
+    if (answers.zhipuKey) {
+        config.ZHIPU_API_KEY = answers.zhipuKey;
+    }
+
+    if (answers.modelName) {
+        if (config.AI_PROVIDER === 'openai') {
+            config.OPENAI_MODEL = answers.modelName;
+        } else if (config.AI_PROVIDER === 'zhipu') {
+            config.ZHIPU_MODEL = answers.modelName;
+        } else {
+            config.GEMINI_MODEL = answers.modelName;
+        }
     }
 
     if (answers.selectedLogs) {

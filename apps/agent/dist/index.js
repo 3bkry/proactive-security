@@ -7,8 +7,33 @@ import { BanManager } from "./ban.js";
 import { TelegramNotifier } from "./telegram.js";
 import { HeartbeatService } from "./heartbeat.js";
 import pty from "node-pty";
-// Global WebSocket Server
-const wss = new WebSocketServer({ port: 8081 });
+// Helper to find an available port
+const startWebSocketServer = async (startPort) => {
+    return new Promise((resolve, reject) => {
+        const server = new WebSocketServer({ port: startPort });
+        server.on('listening', () => {
+            log(`[Sentinel] WebSocket server listening on port ${startPort}`);
+            resolve({ wss: server, port: startPort });
+        });
+        server.on('error', (err) => {
+            if (err.code === 'EADDRINUSE') {
+                log(`[Sentinel] Port ${startPort} is already in use. Trying ${startPort + 1}...`);
+                server.close();
+                // Avoid infinite recursion with a reasonable limit
+                if (startPort > 8100) {
+                    reject(new Error("Could not find an available port in range 8081-8100"));
+                    return;
+                }
+                startWebSocketServer(startPort + 1).then(resolve).catch(reject);
+            }
+            else {
+                reject(err);
+            }
+        });
+    });
+};
+// Global WebSocket Server (Dynamic Port)
+const { wss, port: selectedPort } = await startWebSocketServer(8081);
 import { ResourceMonitor } from "./monitor.js";
 import { CloudClient } from "./cloud.js";
 // Initialize Components
@@ -62,7 +87,9 @@ if (cloudUrl && agentKey) {
                     aiManager.updateConfig({
                         provider: data.aiConfig.provider,
                         geminiKey: data.aiConfig.geminiKey,
-                        openaiKey: data.aiConfig.openaiKey
+                        openaiKey: data.aiConfig.openaiKey,
+                        zhipuKey: data.aiConfig.zhipuKey,
+                        model: data.aiConfig.model
                     });
                 }
                 // Sync cloud file status to local watcher
@@ -340,6 +367,9 @@ watcher.on("file_changed", async (path) => {
                     if (strikes >= banManager.MAX_STRIKES) {
                         await banManager.banIP(result.ip);
                         telegram.notifyBan(result.ip, "has exceeded strike limit.");
+                        if (cloudClient) {
+                            cloudClient.sendAlert("IP_BANNED", `IP ${result.ip} banned after ${banManager.MAX_STRIKES} strikes.`, { ip: result.ip, reason: "Excessive suspicious activity" });
+                        }
                     }
                 }
             }

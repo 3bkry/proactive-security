@@ -100,7 +100,9 @@ if (cloudUrl && agentKey) {
                     aiManager.updateConfig({
                         provider: data.aiConfig.provider,
                         geminiKey: data.aiConfig.geminiKey,
-                        openaiKey: data.aiConfig.openaiKey
+                        openaiKey: data.aiConfig.openaiKey,
+                        zhipuKey: data.aiConfig.zhipuKey,
+                        model: data.aiConfig.model
                     });
                 }
                 // Sync cloud file status to local watcher

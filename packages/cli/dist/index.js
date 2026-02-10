@@ -23,40 +23,59 @@ program
     .command('start')
     .description('Start the Sentinel Agent and Dashboard')
     .action(() => {
-    console.log('Starting SentinelAI...');
+    const isCloud = !!process.env.SENTINEL_CLOUD_URL;
+    console.log(isCloud ? '🚀 Starting SentinelAI Agent in Cloud Mode...' : '🚀 Starting SentinelAI (Local Mode)...');
     const rootDir = path_1.default.resolve(__dirname, '../../..');
     const agent = (0, child_process_1.spawn)('npm', ['start', '-w', 'apps/agent'], {
         cwd: rootDir,
         stdio: 'inherit',
         env: { ...process.env, PORT: '8081' }
     });
-    const web = (0, child_process_1.spawn)('npm', ['run', 'dev', '-w', 'apps/web'], {
-        cwd: rootDir,
-        stdio: 'inherit'
-    });
-    // Open browser after a slight delay
-    setTimeout(() => {
-        const url = 'http://localhost:3000';
-        const start = (process.platform == 'darwin' ? 'open' : process.platform == 'win32' ? 'start' : 'xdg-open');
-        (0, child_process_1.spawn)(start, [url]);
-        console.log(`\nDashboard opened at ${url}`);
-    }, 3000);
-    // Cleanup on exit
-    process.on('SIGINT', () => {
-        agent.kill();
-        web.kill();
-        process.exit();
-    });
+    if (!isCloud) {
+        const web = (0, child_process_1.spawn)('npm', ['run', 'dev', '-w', 'apps/web'], {
+            cwd: rootDir,
+            stdio: 'inherit'
+        });
+        // Open browser after a slight delay
+        setTimeout(() => {
+            const url = 'http://localhost:3000';
+            const start = (process.platform == 'darwin' ? 'open' : process.platform == 'win32' ? 'start' : 'xdg-open');
+            (0, child_process_1.spawn)(start, [url]);
+            console.log(`\nDashboard opened at ${url}`);
+        }, 3000);
+        // Cleanup on exit
+        process.on('SIGINT', () => {
+            agent.kill();
+            web.kill();
+            process.exit();
+        });
+    }
+    else {
+        console.log(`\n📡 Agent is connecting to: ${process.env.SENTINEL_CLOUD_URL}`);
+        console.log(`🔗 Monitor your server at: ${process.env.SENTINEL_CLOUD_URL}`);
+        process.on('SIGINT', () => {
+            agent.kill();
+            process.exit();
+        });
+    }
 });
 program
     .command('stop')
     .description('Stop the Sentinel Agent and Dashboard')
     .action(() => {
     const { execSync } = require('child_process');
-    console.log('Stopping SentinelAI components...');
+    console.log('🛑 Stopping all SentinelAI services...');
     try {
-        // Kill processes on ports 3000 and 8081
-        execSync('fuser -k 3000/tcp 8081/tcp 2>/dev/null || true');
+        // Kill processes on ports 3000 (web) and any port in the 8081-8100 range (agent)
+        // also kill anything matched by binary name/path
+        execSync('fuser -k 3000/tcp 2>/dev/null || true');
+        execSync('fuser -k 8081/tcp 8082/tcp 8083/tcp 8084/tcp 8085/tcp 2>/dev/null || true');
+        // Kill any node processes running our agent or web app
+        try {
+            execSync('pkill -f "apps/agent/dist/index.js" || true');
+            execSync('pkill -f "apps/web/.next" || true');
+        }
+        catch (e) { }
         console.log('✅ Services stopped successfully.');
     }
     catch (e) {

@@ -136,10 +136,50 @@ async function runSetup() {
             default: false
         },
         {
+            type: 'list',
+            name: 'aiProvider',
+            message: 'Select AI Provider:',
+            choices: [
+                { name: 'Google Gemini', value: 'gemini' },
+                { name: 'OpenAI', value: 'openai' },
+                { name: 'Zhipu AI (GLM-4)', value: 'zhipu' }
+            ],
+            default: config.AI_PROVIDER || 'gemini'
+        },
+        {
             type: 'input',
             name: 'geminiKey',
-            message: 'Enter your Google Gemini API Key (leave empty to skip):',
+            message: 'Enter your Google Gemini API Key:',
+            when: (answers) => answers.aiProvider === 'gemini',
             default: config.GEMINI_API_KEY || process.env.GEMINI_API_KEY || '',
+        },
+        {
+            type: 'input',
+            name: 'openaiKey',
+            message: 'Enter your OpenAI API Key:',
+            when: (answers) => answers.aiProvider === 'openai',
+            default: config.OPENAI_API_KEY || process.env.OPENAI_API_KEY || '',
+        },
+        {
+            type: 'input',
+            name: 'zhipuKey',
+            message: 'Enter your Zhipu GLM API Key:',
+            when: (answers) => answers.aiProvider === 'zhipu',
+            default: config.ZHIPU_API_KEY || process.env.ZHIPU_API_KEY || '',
+        },
+        {
+            type: 'input',
+            name: 'modelName',
+            message: 'Enter Model Name (e.g., gemini-1.5-flash, gpt-4o, glm-4-plus, glm4.7):',
+            default: (answers) => {
+                if (answers.aiProvider === 'gemini')
+                    return config.GEMINI_MODEL || 'gemini-1.5-flash';
+                if (answers.aiProvider === 'openai')
+                    return config.OPENAI_MODEL || 'gpt-4o';
+                if (answers.aiProvider === 'zhipu')
+                    return config.ZHIPU_MODEL || 'glm-4-plus';
+                return '';
+            }
         },
         {
             type: 'checkbox',
@@ -166,6 +206,23 @@ async function runSetup() {
         },
         {
             type: 'confirm',
+            name: 'enableCloud',
+            message: chalk_1.default.magenta('Connect to Sentinel Cloud Dashboard? (Recommended)'),
+            default: true
+        },
+        {
+            type: 'input',
+            name: 'cloudKey',
+            message: (answers) => {
+                console.log(chalk_1.default.cyan('\n💡 Sentinel Cloud allows you to monitor this server from anywhere.'));
+                console.log(chalk_1.default.cyan(`🔗 Sign up or login at: ${chalk_1.default.bold('https://proactive-security-web.vercel.app/register')}\n`));
+                return 'Enter your Sentinel Agent Key (leave empty to skip):';
+            },
+            when: (answers) => answers.enableCloud,
+            default: config.SENTINEL_AGENT_KEY || '',
+        },
+        {
+            type: 'confirm',
             name: 'enableTelegram',
             message: chalk_1.default.yellow('Enable Telegram Notifications? (Ensure the Sentinel Agent is STOPPED first)'),
             default: !!config.TELEGRAM_BOT_TOKEN
@@ -185,8 +242,28 @@ async function runSetup() {
         config.WATCH_FILES = [];
         (0, core_1.log)(chalk_1.default.dim('Existing monitored files cleared.'));
     }
+    if (answers.aiProvider) {
+        config.AI_PROVIDER = answers.aiProvider;
+    }
     if (answers.geminiKey) {
         config.GEMINI_API_KEY = answers.geminiKey;
+    }
+    if (answers.openaiKey) {
+        config.OPENAI_API_KEY = answers.openaiKey;
+    }
+    if (answers.zhipuKey) {
+        config.ZHIPU_API_KEY = answers.zhipuKey;
+    }
+    if (answers.modelName) {
+        if (config.AI_PROVIDER === 'openai') {
+            config.OPENAI_MODEL = answers.modelName;
+        }
+        else if (config.AI_PROVIDER === 'zhipu') {
+            config.ZHIPU_MODEL = answers.modelName;
+        }
+        else {
+            config.GEMINI_MODEL = answers.modelName;
+        }
     }
     if (answers.selectedLogs) {
         config.WATCH_FILES = config.WATCH_FILES || [];
@@ -200,6 +277,11 @@ async function runSetup() {
         if (!config.WATCH_FILES.includes(answers.customLogFile)) {
             config.WATCH_FILES.push(answers.customLogFile);
         }
+    }
+    if (answers.cloudKey) {
+        config.SENTINEL_AGENT_KEY = answers.cloudKey;
+        // Also set the Cloud URL by default if key is provided
+        config.SENTINEL_CLOUD_URL = "https://proactive-security-web.vercel.app";
     }
     // Save System Info
     config.SYSTEM_INFO = sysInfo;

@@ -23,4 +23,4 @@ export interface ServerProfile {
 }
 export declare function getSystemStats(): ServerProfile;
 export declare function getProcessStats(sortBy: 'cpu' | 'memory'): Promise<string[]>;
-export declare function getDiskHogs(dir?: string): Promise<string[]>;
+export declare function getDiskHogs(dirs?: string | string[]): Promise<string[]>;

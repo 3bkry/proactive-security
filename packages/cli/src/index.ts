@@ -4,6 +4,23 @@ import { spawn } from 'child_process';
 import path from 'path';
 
 const program = new Command();
+import fs from 'fs';
+
+// Load .env manually if present
+const envPath = path.resolve(__dirname, '../../../.env');
+if (fs.existsSync(envPath)) {
+    const envConfig = fs.readFileSync(envPath, 'utf8');
+    envConfig.split('\n').forEach(line => {
+        const match = line.match(/^([^=]+)=(.*)$/);
+        if (match) {
+            const key = match[1].trim();
+            const value = match[2].trim().replace(/^"(.*)"$/, '$1');
+            if (!process.env[key]) {
+                process.env[key] = value;
+            }
+        }
+    });
+}
 
 program
     .name('sentinelctl')

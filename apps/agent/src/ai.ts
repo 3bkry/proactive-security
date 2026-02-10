@@ -8,7 +8,7 @@ export class AIManager {
     private geminiClient: GoogleGenAI | null = null;
     private openaiClient: OpenAI | null = null;
 
-    public provider: "gemini" | "openai" = "gemini";
+    public provider: "gemini" | "openai" | "zhipu" = "gemini";
     public model: string = "gemini-3-flash-preview"; // Reverted to experimental model
 
     public initialized: boolean = false;
@@ -60,9 +60,18 @@ Respond ONLY with this JSON structure:
                 if (config.OPENAI_API_KEY) {
                     this.openaiClient = new OpenAI({ apiKey: config.OPENAI_API_KEY });
                 }
+                if (config.ZHIPU_API_KEY) {
+                    // Zhipu uses OpenAI-compatible SDK with custom base URL
+                    this.openaiClient = new OpenAI({
+                        apiKey: config.ZHIPU_API_KEY,
+                        baseURL: "https://open.bigmodel.cn/api/paas/v4/"
+                    });
+                }
 
                 if (this.provider === "openai") {
                     this.model = config.OPENAI_MODEL || "gpt-4o";
+                } else if (this.provider === "zhipu") {
+                    this.model = config.ZHIPU_MODEL || "glm-4-plus";
                 } else {
                     this.model = config.GEMINI_MODEL || "gemini-3-flash-preview";
                 }
@@ -75,7 +84,7 @@ Respond ONLY with this JSON structure:
     /**
      * Update AI configuration dynamically (usually from Cloud Pulse)
      */
-    public updateConfig(config: { provider?: string, geminiKey?: string, openaiKey?: string, model?: string }) {
+    public updateConfig(config: { provider?: string, geminiKey?: string, openaiKey?: string, zhipuKey?: string, model?: string }) {
         if (config.provider) this.provider = config.provider as any;
         if (config.geminiKey) {
             this.geminiClient = new GoogleGenAI({ apiKey: config.geminiKey });
@@ -83,20 +92,36 @@ Respond ONLY with this JSON structure:
         if (config.openaiKey) {
             this.openaiClient = new OpenAI({ apiKey: config.openaiKey });
         }
+        if (config.zhipuKey) {
+            this.openaiClient = new OpenAI({
+                apiKey: config.zhipuKey,
+                baseURL: "https://open.bigmodel.cn/api/paas/v4/"
+            });
+        }
         if (config.model) this.model = config.model;
         this.initialized = !!(this.geminiClient || this.openaiClient);
     }
 
     async testConnection(): Promise<boolean> {
-        if (!this.initialized || !this.geminiClient) return false;
+        if (!this.initialized) return false;
         try {
-            const response = await this.geminiClient.models.generateContent({
-                model: this.model,
-                contents: 'ping',
-            });
-            return !!response.text;
+            if ((this.provider === "openai" || this.provider === "zhipu") && this.openaiClient) {
+                const response = await this.openaiClient.chat.completions.create({
+                    model: this.model,
+                    messages: [{ role: "user", content: "ping" }],
+                    max_tokens: 5
+                });
+                return !!response.choices[0].message.content;
+            } else if (this.geminiClient) {
+                const response = await this.geminiClient.models.generateContent({
+                    model: this.model,
+                    contents: 'ping',
+                });
+                return !!response.text;
+            }
+            return false;
         } catch (error) {
-            log(`[AI] Gemini connection probe failed: ${error}`);
+            log(`[AI] Connection probe failed: ${error}`);
             return false;
         }
     }
@@ -156,7 +181,7 @@ Respond ONLY with this JSON structure:
             let tokens = 0;
             let cost = 0;
 
-            if (this.provider === "openai" && this.openaiClient) {
+            if ((this.provider === "openai" || this.provider === "zhipu") && this.openaiClient) {
                 const response = await this.openaiClient.chat.completions.create({
                     model: this.model,
                     messages: [{ role: "user", content: prompt }],
@@ -169,7 +194,7 @@ Respond ONLY with this JSON structure:
 
                 // Pricing for GPT-4o (est)
                 cost = ((response.usage?.prompt_tokens || 0) / 1000000 * 5) + ((response.usage?.completion_tokens || 0) / 1000000 * 15);
-            } else if (this.geminiClient) {
+            } else if (this.provider === "gemini" && this.geminiClient) {
                 const response = await this.geminiClient.models.generateContent({
                     model: this.model,
                     contents: prompt
@@ -190,6 +215,8 @@ Respond ONLY with this JSON structure:
                     tokens = inputTokens + outputTokens;
                     cost = (inputTokens / 1000000 * 0.35) + (outputTokens / 1000000 * 0.70);
                 }
+            } else {
+                return null; // Provider mismatch or missing client
             }
 
             if (result) {
@@ -241,13 +268,13 @@ Respond ONLY with this JSON structure:
         const prompt = `Analyze these infrastructure and AI security incidents and provide a concise executive summary for an SRE dashboard: ${JSON.stringify(incidents)}`;
 
         try {
-            if (this.provider === "openai" && this.openaiClient) {
+            if ((this.provider === "openai" || this.provider === "zhipu") && this.openaiClient) {
                 const response = await this.openaiClient.chat.completions.create({
                     model: this.model,
                     messages: [{ role: "user", content: prompt }]
                 });
                 return response.choices[0].message.content || "No summary generated.";
-            } else {
+            } else if (this.provider === "gemini" && this.geminiClient) {
                 const response = await this.geminiClient.models.generateContent({
                     model: this.model,
                     contents: prompt,
@@ -257,6 +284,8 @@ Respond ONLY with this JSON structure:
                     }
                 });
                 return response.text || "Unable to generate summary.";
+            } else {
+                return "AI Provider mismatch or missing key.";
             }
         } catch (error: any) {
             if (error.message?.includes("429") || error.status === 429) {
@@ -275,18 +304,24 @@ Respond ONLY with this JSON structure:
         const prompt = `Assess the risk of this AI interaction log. Risk Score is ${logEntry.riskScore}. Model is ${logEntry.model}. Provide a one-sentence recommendation.`;
 
         try {
-            if (this.provider === "openai" && this.openaiClient) {
+            if ((this.provider === "openai" || this.provider === "zhipu") && this.openaiClient) {
                 const response = await this.openaiClient.chat.completions.create({
                     model: this.model,
                     messages: [{ role: "user", content: prompt }]
                 });
                 return response.choices[0].message.content || "No insight generated.";
-            } else {
+            } else if (this.provider === "gemini" && this.geminiClient) {
                 const response = await this.geminiClient.models.generateContent({
                     model: this.model,
                     contents: prompt,
+                    config: {
+                        systemInstruction: "You are a senior SRE and AI Security expert. Provide high-level technical summaries of incidents.",
+                        temperature: 0.3,
+                    }
                 });
                 return response.text || "Risk analysis unavailable.";
+            } else {
+                return "AI Provider mismatch or missing key.";
             }
         } catch (error: any) {
             if (error.message?.includes("429") || error.status === 429) {

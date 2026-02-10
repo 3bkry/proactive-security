@@ -1,12 +1,14 @@
 export declare class AIManager {
     private geminiClient;
     private openaiClient;
-    provider: "gemini" | "openai";
+    provider: "gemini" | "openai" | "zhipu";
     model: string;
     initialized: boolean;
     totalTokens: number;
     totalCost: number;
     requestCount: number;
+    private rateLimitCooldown;
+    private analysisCache;
     promptTemplate: string;
     history: Array<{
         timestamp: string;
@@ -25,8 +27,11 @@ export declare class AIManager {
         provider?: string;
         geminiKey?: string;
         openaiKey?: string;
+        zhipuKey?: string;
         model?: string;
     }): void;
+    testConnection(): Promise<boolean>;
+    private getLogFingerprint;
     analyze(logLine: string): Promise<{
         risk: string;
         summary: string;
