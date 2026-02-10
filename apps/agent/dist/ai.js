@@ -35,8 +35,13 @@ Respond ONLY with this JSON structure:
 `;
     history = [];
     constructor() {
-        log("[AI] Neural Engine v1.7 Initialized (Experimental Model: gemini-3-flash-preview)");
         this.initializeFromConfig();
+        if (this.provider === 'none') {
+            log("[AI] Sentinel is running in Shield Mode (Offline/Local Rules only).");
+        }
+        else {
+            log(`[AI] Neural Engine v1.7 Initialized (Model: ${this.model})`);
+        }
     }
     initializeFromConfig() {
         if (fs.existsSync(CONFIG_FILE)) {

@@ -129,7 +129,8 @@ export async function runSetup() {
             choices: [
                 { name: 'Google Gemini', value: 'gemini' },
                 { name: 'OpenAI', value: 'openai' },
-                { name: 'Zhipu AI (GLM-4)', value: 'zhipu' }
+                { name: 'Zhipu AI (GLM-4)', value: 'zhipu' },
+                { name: 'Offline (Local Shield Only - No AI)', value: 'none' }
             ],
             default: config.AI_PROVIDER || 'gemini'
         },
@@ -158,6 +159,7 @@ export async function runSetup() {
             type: 'input',
             name: 'modelName',
             message: 'Enter Model Name (e.g., gemini-1.5-flash, gpt-4o, glm-4-plus, glm4.7):',
+            when: (answers: any) => answers.aiProvider !== 'none',
             default: (answers: any) => {
                 if (answers.aiProvider === 'gemini') return config.GEMINI_MODEL || 'gemini-1.5-flash';
                 if (answers.aiProvider === 'openai') return config.OPENAI_MODEL || 'gpt-4o';

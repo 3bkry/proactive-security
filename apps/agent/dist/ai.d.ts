@@ -1,7 +1,7 @@
 export declare class AIManager {
     private geminiClient;
     private openaiClient;
-    provider: "gemini" | "openai" | "zhipu";
+    provider: "gemini" | "openai" | "zhipu" | "none";
     model: string;
     initialized: boolean;
     totalTokens: number;

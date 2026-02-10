@@ -8,7 +8,7 @@ export class AIManager {
     private geminiClient: GoogleGenAI | null = null;
     private openaiClient: OpenAI | null = null;
 
-    public provider: "gemini" | "openai" | "zhipu" = "gemini";
+    public provider: "gemini" | "openai" | "zhipu" | "none" = "gemini";
     public model: string = "gemini-3-flash-preview"; // Reverted to experimental model
 
     public initialized: boolean = false;
@@ -44,8 +44,12 @@ Respond ONLY with this JSON structure:
     public history: Array<{ timestamp: string, log: string, prompt: string, response: any, tokens: number, cost: number }> = [];
 
     constructor() {
-        log("[AI] Neural Engine v1.7 Initialized (Experimental Model: gemini-3-flash-preview)");
         this.initializeFromConfig();
+        if (this.provider === 'none') {
+            log("[AI] Sentinel is running in Shield Mode (Offline/Local Rules only).");
+        } else {
+            log(`[AI] Neural Engine v1.7 Initialized (Model: ${this.model})`);
+        }
     }
 
     private initializeFromConfig() {
