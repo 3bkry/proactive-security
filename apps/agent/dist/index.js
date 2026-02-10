@@ -6,6 +6,7 @@ import { log, getSystemStats, CONFIG_FILE } from "@sentinel/core";
 import { BanManager } from "./ban.js";
 import { TelegramNotifier } from "./telegram.js";
 import { HeartbeatService } from "./heartbeat.js";
+import { OWASPScanner } from "./rules.js";
 import pty from "node-pty";
 // Helper to find an available port
 const startWebSocketServer = async (startPort) => {
@@ -328,9 +329,24 @@ watcher.on("file_changed", async (path) => {
                 return;
             }
         }
-        // 3. SPECIAL HANDLING: auth.log (Skip AI for cost/performance, use regex)
+        // 3. SPECIAL HANDLING: OWASP Local Rules (Priority 1)
         let result = null;
-        if (path.endsWith("auth.log") || path.endsWith("secure")) {
+        const owaspMatch = OWASPScanner.scan(lastLine);
+        if (owaspMatch) {
+            // Extract IP if possible
+            const ipMatch = lastLine.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+            const ip = ipMatch ? ipMatch[0] : undefined;
+            result = {
+                risk: owaspMatch.risk,
+                summary: `[OWASP ${owaspMatch.category}] ${owaspMatch.summary}`,
+                ip: ip,
+                action: owaspMatch.action,
+                tokens: 0,
+                usage: { totalTokens: aiManager.totalTokens, totalCost: aiManager.totalCost, requestCount: aiManager.requestCount }
+            };
+            log(`[Defense] 🛡️ OWASP Match: ${owaspMatch.category} detected locally.`);
+        }
+        else if (path.endsWith("auth.log") || path.endsWith("secure")) {
             const authFailPattern = /failed|failure|invalid user|authentication error|refused|disconnect/i;
             if (authFailPattern.test(lastLine)) {
                 // Extract IP if possible
@@ -347,7 +363,7 @@ watcher.on("file_changed", async (path) => {
             }
         }
         else {
-            // Normal AI Analysis for other logs
+            // Normal AI Analysis for other logs (Secondary Verification)
             result = await aiManager.analyze(lastLine);
         }
         if (result) {
