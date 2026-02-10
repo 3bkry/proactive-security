@@ -12,6 +12,7 @@
     "dependencies": {
         "@google/genai": "^1.0.0",
         "@sentinel/core": "*",
+        "axios": "^1.13.5",
         "chokidar": "^3.5.3",
         "commander": "^11.1.0",
         "node-cron": "^4.2.1",

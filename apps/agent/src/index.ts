@@ -14,6 +14,7 @@ import pty from "node-pty";
 const wss = new WebSocketServer({ port: 8081 });
 
 import { ResourceMonitor } from "./monitor.js";
+import { CloudClient } from "./cloud.js";
 
 // Initialize Components
 const watcher = new LogWatcher();
@@ -22,6 +23,39 @@ const banManager = new BanManager();
 const telegram = new TelegramNotifier(banManager);
 const heartbeat = new HeartbeatService(wss);
 const monitor = new ResourceMonitor(telegram);
+
+// Cloud Client Setup
+const cloudUrl = process.env.SENTINEL_CLOUD_URL;
+const agentKey = process.env.SENTINEL_AGENT_KEY;
+
+if (cloudUrl && agentKey) {
+    log(`[Cloud] Configuration found. Initializing Cloud Client...`);
+    const cloudClient = new CloudClient(cloudUrl, agentKey);
+
+    cloudClient.connect().then(connected => {
+        if (connected) {
+            log("[Cloud] Agent acts as a satellite node.");
+
+            cloudClient.setCommandCallback(async (cmd) => {
+                if (cmd.type === "BAN_IP") {
+                    const ip = cmd.payload ? JSON.parse(cmd.payload).ip : null;
+                    if (ip) {
+                        await banManager.banIP(ip);
+                        telegram.notifyBan(ip, "via Cloud Dashboard");
+                        return { success: true };
+                    }
+                } else if (cmd.type === "UNBAN_IP") {
+                    const ip = cmd.payload ? JSON.parse(cmd.payload).ip : null;
+                    if (ip) {
+                        await banManager.unbanIP(ip);
+                        return { success: true };
+                    }
+                }
+                throw new Error("Unknown command");
+            });
+        }
+    });
+}
 
 // Register Telegram Commands
 telegram.onCommand("status", async () => {

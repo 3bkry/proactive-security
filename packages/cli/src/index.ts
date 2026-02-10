@@ -23,7 +23,8 @@ program
     .command('start')
     .description('Start the Sentinel Agent and Dashboard')
     .action(() => {
-        console.log('Starting SentinelAI...');
+        const isCloud = !!process.env.SENTINEL_CLOUD_URL;
+        console.log(isCloud ? '🚀 Starting SentinelAI Agent in Cloud Mode...' : '🚀 Starting SentinelAI (Local Mode)...');
         const rootDir = path.resolve(__dirname, '../../..');
 
         const agent = spawn('npm', ['start', '-w', 'apps/agent'], {
@@ -32,25 +33,35 @@ program
             env: { ...process.env, PORT: '8081' }
         });
 
-        const web = spawn('npm', ['run', 'dev', '-w', 'apps/web'], {
-            cwd: rootDir,
-            stdio: 'inherit'
-        });
+        if (!isCloud) {
+            const web = spawn('npm', ['run', 'dev', '-w', 'apps/web'], {
+                cwd: rootDir,
+                stdio: 'inherit'
+            });
 
-        // Open browser after a slight delay
-        setTimeout(() => {
-            const url = 'http://localhost:3000';
-            const start = (process.platform == 'darwin' ? 'open' : process.platform == 'win32' ? 'start' : 'xdg-open');
-            spawn(start, [url]);
-            console.log(`\nDashboard opened at ${url}`);
-        }, 3000);
+            // Open browser after a slight delay
+            setTimeout(() => {
+                const url = 'http://localhost:3000';
+                const start = (process.platform == 'darwin' ? 'open' : process.platform == 'win32' ? 'start' : 'xdg-open');
+                spawn(start, [url]);
+                console.log(`\nDashboard opened at ${url}`);
+            }, 3000);
 
-        // Cleanup on exit
-        process.on('SIGINT', () => {
-            agent.kill();
-            web.kill();
-            process.exit();
-        });
+            // Cleanup on exit
+            process.on('SIGINT', () => {
+                agent.kill();
+                web.kill();
+                process.exit();
+            });
+        } else {
+            console.log(`\n📡 Agent is connecting to: ${process.env.SENTINEL_CLOUD_URL}`);
+            console.log(`🔗 Monitor your server at: ${process.env.SENTINEL_CLOUD_URL}`);
+
+            process.on('SIGINT', () => {
+                agent.kill();
+                process.exit();
+            });
+        }
     });
 
 program
