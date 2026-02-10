@@ -6,13 +6,20 @@ export interface ServerProfile {
     type: string;
     arch: string;
     cpus: number;
-    totalMemory: number;
-    freeMemory: number;
-    memoryUsage: number;
+    memory: {
+        total: number;
+        free: number;
+        used: number;
+        usagePercent: number;
+    };
     networkInterfaces: NodeJS.Dict<os.NetworkInterfaceInfo[]>;
     uptime: number;
-    cpuLoad: number;
-    diskUsage: number;
+    cpu: {
+        load: number;
+    };
+    disk: {
+        usagePercent: number;
+    };
 }
 export declare function getSystemStats(): ServerProfile;
 export declare function getProcessStats(sortBy: 'cpu' | 'memory'): Promise<string[]>;

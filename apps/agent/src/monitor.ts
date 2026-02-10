@@ -23,6 +23,13 @@ export class ResourceMonitor {
         this.telegram = telegram;
     }
 
+    public updateConfig(config: { cpu?: number, memory?: number, disk?: number }) {
+        if (config.cpu) this.thresholds.cpu = config.cpu;
+        if (config.memory) this.thresholds.memory = config.memory;
+        if (config.disk) this.thresholds.disk = config.disk;
+        log(`[Monitor] Thresholds updated: CPU ${this.thresholds.cpu}%, MEM ${this.thresholds.memory}%, DISK ${this.thresholds.disk}%`);
+    }
+
     start() {
         if (this.checkInterval) return;
         log("[Monitor] Starting resource monitoring...");
@@ -43,10 +50,10 @@ export class ResourceMonitor {
             const now = Date.now();
 
             // CPU Check
-            if (stats.cpuLoad > this.thresholds.cpu) {
+            if (stats.cpu.load > this.thresholds.cpu) {
                 if (!this.highCpuSince) this.highCpuSince = now;
                 else if (now - this.highCpuSince > this.thresholds.duration) {
-                    await this.triggerAlert('CPU', stats.cpuLoad);
+                    await this.triggerAlert('CPU', stats.cpu.load);
                     this.highCpuSince = null; // Reset after alert to avoid spam (or implement debounce)
                 }
             } else {
@@ -54,10 +61,10 @@ export class ResourceMonitor {
             }
 
             // Memory Check
-            if (stats.memoryUsage > this.thresholds.memory) {
+            if (stats.memory.usagePercent > this.thresholds.memory) {
                 if (!this.highMemSince) this.highMemSince = now;
                 else if (now - this.highMemSince > this.thresholds.duration) {
-                    await this.triggerAlert('MEMORY', stats.memoryUsage);
+                    await this.triggerAlert('MEMORY', stats.memory.usagePercent);
                     this.highMemSince = null;
                 }
             } else {
@@ -65,10 +72,10 @@ export class ResourceMonitor {
             }
 
             // Disk Check
-            if (stats.diskUsage > this.thresholds.disk) {
+            if (stats.disk.usagePercent > this.thresholds.disk) {
                 if (!this.highDiskSince) this.highDiskSince = now;
                 else if (now - this.highDiskSince > this.thresholds.duration) {
-                    await this.triggerAlert('DISK', stats.diskUsage);
+                    await this.triggerAlert('DISK', stats.disk.usagePercent);
                     this.highDiskSince = null;
                 }
             } else {

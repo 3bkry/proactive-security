@@ -28,15 +28,18 @@ const monitor = new ResourceMonitor(telegram);
 const cloudUrl = process.env.SENTINEL_CLOUD_URL;
 const agentKey = process.env.SENTINEL_AGENT_KEY;
 
+let cloudClient: CloudClient | null = null;
+
 if (cloudUrl && agentKey) {
     log(`[Cloud] Configuration found. Initializing Cloud Client...`);
-    const cloudClient = new CloudClient(cloudUrl, agentKey);
+    cloudClient = new CloudClient(cloudUrl, agentKey);
 
     cloudClient.connect().then(connected => {
-        if (connected) {
+        if (connected && cloudClient) {
             log("[Cloud] Agent acts as a satellite node.");
+            const activeCloudClient = cloudClient; // Closure safety
 
-            cloudClient.setCommandCallback(async (cmd) => {
+            activeCloudClient.setCommandCallback(async (cmd) => {
                 if (cmd.type === "BAN_IP") {
                     const ip = cmd.payload ? JSON.parse(cmd.payload).ip : null;
                     if (ip) {
@@ -53,6 +56,37 @@ if (cloudUrl && agentKey) {
                 }
                 throw new Error("Unknown command");
             });
+
+            activeCloudClient.setPulseDataGetter(() => {
+                const files = watcher.getWatchedFiles().map(f => ({
+                    path: f,
+                    lastUpdate: fs.existsSync(f) ? fs.statSync(f).mtime.toISOString() : undefined
+                }));
+                return { files };
+            });
+
+            activeCloudClient.setOnSync((data: any) => {
+                if (data.thresholds) {
+                    monitor.updateConfig(data.thresholds);
+                }
+                if (data.aiConfig) {
+                    aiManager.updateConfig({
+                        provider: data.aiConfig.provider,
+                        geminiKey: data.aiConfig.geminiKey,
+                        openaiKey: data.aiConfig.openaiKey
+                    });
+                }
+                // Sync cloud file status to local watcher
+                if (data.files) {
+                    for (const file of data.files) {
+                        if (file.enabled) {
+                            watcher.add(file.path);
+                        } else {
+                            watcher.remove(file.path);
+                        }
+                    }
+                }
+            });
         }
     });
 }
@@ -63,9 +97,9 @@ telegram.onCommand("status", async () => {
     const bannedCount = banManager.getBannedIPs().length;
     const msg = `🖥️ *Server Status*\n\n` +
         `*CPUs:* ${stats.cpus}\n` +
-        `*CPU Load:* ${stats.cpuLoad}%\n` +
-        `*Memory:* ${stats.memoryUsage}%\n` +
-        `*Storage:* ${stats.diskUsage}%\n` +
+        `*CPU Load:* ${stats.cpu.load}%\n` +
+        `*Memory:* ${stats.memory.usagePercent}%\n` +
+        `*Storage:* ${stats.disk.usagePercent}%\n` +
         `*Uptime:* ${Math.floor(stats.uptime / 3600)}h ${Math.floor((stats.uptime % 3600) / 60)}m\n` +
         `*Banned IPs:* ${bannedCount}\n` +
         `*Active Watchers:* ${watcher.getWatchedFiles().length}`;
@@ -310,6 +344,11 @@ watcher.on("file_changed", async (path) => {
                     }));
                 }
             });
+
+            // Report tokens to Cloud
+            if (cloudClient && result.tokens) {
+                cloudClient.addTokens(result.tokens);
+            }
 
             if (result.risk !== "SAFE" && result.risk !== "LOW") {
                 log(`[AI ALERT] ${result.risk} on ${path}: ${result.summary}`);

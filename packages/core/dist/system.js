@@ -29,13 +29,20 @@ function getSystemStats() {
         type: os_1.default.type(),
         arch: os_1.default.arch(),
         cpus: cpuCount,
-        totalMemory: total,
-        freeMemory: free,
-        memoryUsage: Math.round(((total - free) / total) * 100),
+        memory: {
+            total,
+            free,
+            used: total - free,
+            usagePercent: Math.round(((total - free) / total) * 100)
+        },
         networkInterfaces: os_1.default.networkInterfaces(),
         uptime: os_1.default.uptime(),
-        cpuLoad,
-        diskUsage
+        cpu: {
+            load: cpuLoad
+        },
+        disk: {
+            usagePercent: diskUsage
+        }
     };
 }
 async function getProcessStats(sortBy) {

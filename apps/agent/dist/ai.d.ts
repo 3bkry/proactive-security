@@ -1,5 +1,7 @@
 export declare class AIManager {
-    private client;
+    private geminiClient;
+    private openaiClient;
+    provider: "gemini" | "openai";
     model: string;
     initialized: boolean;
     totalTokens: number;
@@ -15,15 +17,23 @@ export declare class AIManager {
         cost: number;
     }>;
     constructor();
-    private getApiKey;
-    private getClient;
-    private initialize;
+    private initializeFromConfig;
+    /**
+     * Update AI configuration dynamically (usually from Cloud Pulse)
+     */
+    updateConfig(config: {
+        provider?: string;
+        geminiKey?: string;
+        openaiKey?: string;
+        model?: string;
+    }): void;
     analyze(logLine: string): Promise<{
         risk: string;
         summary: string;
         ip?: string;
         action?: string;
-        usage?: {
+        tokens: number;
+        usage: {
             totalTokens: number;
             totalCost: number;
             requestCount: number;

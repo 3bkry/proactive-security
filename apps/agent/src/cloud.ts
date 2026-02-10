@@ -7,6 +7,8 @@ export class CloudClient {
     private serverId: string | null = null;
     private pulseInterval: NodeJS.Timeout | null = null;
     private commandCallback: ((cmd: any) => Promise<any>) | null = null;
+    private syncCallback: ((data: any) => void) | null = null;
+    private pendingTokens: number = 0;
 
     constructor(
         private cloudUrl: string,
@@ -57,34 +59,64 @@ export class CloudClient {
         this.commandCallback = cb;
     }
 
+    private pulseDataGetter: (() => any) | null = null;
+
+    setPulseDataGetter(cb: () => any) {
+        this.pulseDataGetter = cb;
+    }
+
+    setOnSync(cb: (data: any) => void) {
+        this.syncCallback = cb;
+    }
+
     private startPulse() {
         if (this.pulseInterval) clearInterval(this.pulseInterval);
 
         // Pulse every 10 seconds
         this.pulseInterval = setInterval(async () => {
-            if (!this.serverId) return;
-            try {
-                const stats = getSystemStats();
-                const response = await this.client.post("/api/agent/pulse", {
-                    serverId: this.serverId,
-                    stats: {
-                        cpu: stats.cpuLoad,
-                        memory: stats.memoryUsage,
-                        disk: stats.diskUsage,
-                        uptime: stats.uptime
-                    }
-                });
+            const tokens = this.pendingTokens;
+            this.pendingTokens = 0; // Reset before calling to avoid concurrent pulse loss
 
-                if (response.data.commands && Array.isArray(response.data.commands)) {
-                    for (const cmd of response.data.commands) {
-                        log(`[Cloud] Received command: ${cmd.type}`);
-                        await this.handleCommand(cmd);
-                    }
-                }
-            } catch (e: any) {
-                log(`[Cloud] Pulse failed: ${e.message}`);
-            }
+            const extra = this.pulseDataGetter ? this.pulseDataGetter() : {};
+            await this.pulse(tokens, extra.files);
         }, 10000);
+    }
+
+    addTokens(n: number) {
+        this.pendingTokens += n;
+    }
+
+    async pulse(tokensUsed: number = 0, files?: any[]) {
+        if (!this.serverId) return;
+
+        try {
+            const stats = getSystemStats();
+            const response = await this.client.post("/api/agent/pulse", {
+                serverId: this.serverId,
+                tokensUsed,
+                stats: {
+                    cpu: stats.cpu,
+                    memory: stats.memory,
+                    disk: stats.disk,
+                    uptime: stats.uptime
+                },
+                files
+            });
+
+            if (response.data.commands && Array.isArray(response.data.commands)) {
+                for (const cmd of response.data.commands) {
+                    log(`[Cloud] Received command: ${cmd.type}`);
+                    await this.handleCommand(cmd);
+                }
+            }
+            if (this.syncCallback) {
+                this.syncCallback(response.data);
+            }
+            return response.data;
+        } catch (e: any) {
+            log(`[Cloud] Pulse failed: ${e.message}`);
+            return null;
+        }
     }
 
     private async handleCommand(cmd: any) {

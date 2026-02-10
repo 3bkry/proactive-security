@@ -1,13 +1,16 @@
 
 import { GoogleGenAI } from "@google/genai";
+import OpenAI from "openai";
 import { log, CONFIG_FILE } from "@sentinel/core";
 import fs from "fs";
-import os from "os";
-import path from "path";
 
 export class AIManager {
-    private client: GoogleGenAI | null = null;
-    public model: string = "gemini-3-flash-preview";
+    private geminiClient: GoogleGenAI | null = null;
+    private openaiClient: OpenAI | null = null;
+
+    public provider: "gemini" | "openai" = "gemini";
+    public model: string = "gemini-3-flash-preview"; // Default
+
     public initialized: boolean = false;
     public totalTokens: number = 0;
     public totalCost: number = 0;
@@ -34,40 +37,50 @@ Respond ONLY with this JSON structure:
     public history: Array<{ timestamp: string, log: string, prompt: string, response: any, tokens: number, cost: number }> = [];
 
     constructor() {
-        this.initialize();
+        this.initializeFromConfig();
     }
 
-    private getApiKey(): string | null {
-        // Preference: Config file > Env var
+    private initializeFromConfig() {
         if (fs.existsSync(CONFIG_FILE)) {
             try {
                 const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
-                if (config.GEMINI_API_KEY) return config.GEMINI_API_KEY;
+                if (config.AI_PROVIDER) this.provider = config.AI_PROVIDER;
+
+                if (config.GEMINI_API_KEY) {
+                    this.geminiClient = new GoogleGenAI({ apiKey: config.GEMINI_API_KEY });
+                }
+                if (config.OPENAI_API_KEY) {
+                    this.openaiClient = new OpenAI({ apiKey: config.OPENAI_API_KEY });
+                }
+
+                if (this.provider === "openai") {
+                    this.model = config.OPENAI_MODEL || "gpt-4o";
+                } else {
+                    this.model = config.GEMINI_MODEL || "gemini-3-flash-preview";
+                }
+
+                this.initialized = !!(this.geminiClient || this.openaiClient);
             } catch (e) { }
         }
-        return process.env.GEMINI_API_KEY || null;
     }
 
-    private getClient() {
-        const apiKey = this.getApiKey();
-        if (!apiKey) return null;
-        return new GoogleGenAI({ apiKey });
-    }
-
-    private initialize() {
-        const apiKey = this.getApiKey();
-        if (apiKey) {
-            this.client = new GoogleGenAI({ apiKey });
-            this.initialized = true;
-            log(`[AI] Google GenAI SDK initialized with model: ${this.model}`);
-        } else {
-            log("[AI] No API Key found. Run 'sentinelctl config GEMINI_API_KEY <key>' to enable AI.");
+    /**
+     * Update AI configuration dynamically (usually from Cloud Pulse)
+     */
+    public updateConfig(config: { provider?: string, geminiKey?: string, openaiKey?: string, model?: string }) {
+        if (config.provider) this.provider = config.provider as any;
+        if (config.geminiKey) {
+            this.geminiClient = new GoogleGenAI({ apiKey: config.geminiKey });
         }
+        if (config.openaiKey) {
+            this.openaiClient = new OpenAI({ apiKey: config.openaiKey });
+        }
+        if (config.model) this.model = config.model;
+        this.initialized = !!(this.geminiClient || this.openaiClient);
     }
 
-    async analyze(logLine: string): Promise<{ risk: string, summary: string, ip?: string, action?: string, usage?: { totalTokens: number, totalCost: number, requestCount: number } } | null> {
-        const client = this.getClient();
-        if (!client) return null;
+    async analyze(logLine: string): Promise<{ risk: string, summary: string, ip?: string, action?: string, tokens: number, usage: { totalTokens: number, totalCost: number, requestCount: number } } | null> {
+        if (!this.initialized) return null;
 
         const maxLen = 500;
         const truncatedLine = logLine.length > maxLen ? logLine.substring(0, maxLen) + "...[truncated]" : logLine;
@@ -79,93 +92,112 @@ Respond ONLY with this JSON structure:
                 summary: "No suspicious keywords found",
                 ip: undefined,
                 action: "Skipped",
+                tokens: 0,
                 usage: { totalTokens: this.totalTokens, totalCost: this.totalCost, requestCount: this.requestCount }
             };
         }
 
-        const modelsToTry = [this.model, "gemini-2.0-flash", "gemini-1.5-flash"];
-        let lastError = "";
+        try {
+            const prompt = this.promptTemplate.replace("{{log}}", truncatedLine);
+            let result: any;
+            let tokens = 0;
+            let cost = 0;
 
-        for (const modelName of modelsToTry) {
-            try {
-                const prompt = this.promptTemplate.replace("{{log}}", truncatedLine);
-                const inputTokens = Math.ceil(prompt.length / 4);
-
-                const response = await client.models.generateContent({
-                    model: modelName,
-                    contents: prompt,
+            if (this.provider === "openai" && this.openaiClient) {
+                const response = await this.openaiClient.chat.completions.create({
+                    model: this.model,
+                    messages: [{ role: "user", content: prompt }],
+                    response_format: { type: "json_object" }
                 });
 
-                const text = response.text;
-                if (!text) throw new Error("Empty response from AI");
+                const text = response.choices[0].message.content || "{}";
+                result = JSON.parse(text);
+                tokens = response.usage?.total_tokens || 0;
 
-                const outputTokens = Math.ceil(text.length / 4);
-                // Gemini 3 Preview Pricing (Estimation fallback to 1.5 Flash rates for tracking)
-                const inputCost = (inputTokens / 1000000) * 0.35;
-                const outputCost = (outputTokens / 1000000) * 0.70;
-
-                this.totalTokens += (inputTokens + outputTokens);
-                this.totalCost += (inputCost + outputCost);
-                this.requestCount++;
+                // Pricing for GPT-4o (est)
+                cost = ((response.usage?.prompt_tokens || 0) / 1000000 * 5) + ((response.usage?.completion_tokens || 0) / 1000000 * 15);
+            } else if (this.geminiClient) {
+                const model = (this.geminiClient as any).getGenerativeModel({ model: this.model });
+                const response = await model.generateContent(prompt);
+                const text = response.response.text();
 
                 const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
-                const result = JSON.parse(jsonStr);
+                result = JSON.parse(jsonStr);
+
+                // Gemini estimation (SDK doesn't always provide tokens easily in same call)
+                const inputTokens = Math.ceil(prompt.length / 4);
+                const outputTokens = Math.ceil(text.length / 4);
+                tokens = inputTokens + outputTokens;
+                cost = (inputTokens / 1000000 * 0.35) + (outputTokens / 1000000 * 0.70);
+            }
+
+            if (result) {
+                this.totalTokens += tokens;
+                this.totalCost += cost;
+                this.requestCount++;
 
                 this.history.unshift({
                     timestamp: new Date().toISOString(),
                     log: truncatedLine,
                     prompt: prompt,
                     response: result,
-                    tokens: inputTokens + outputTokens,
-                    cost: inputCost + outputCost
+                    tokens: tokens,
+                    cost: cost
                 });
                 if (this.history.length > 50) this.history.pop();
 
                 return {
                     ...result,
+                    tokens,
                     usage: { totalTokens: this.totalTokens, totalCost: this.totalCost, requestCount: this.requestCount }
                 };
-            } catch (e: any) {
-                lastError = e.message;
-                if (!lastError.includes("404") && !lastError.includes("429")) break;
             }
+        } catch (e: any) {
+            log(`[AI] Error during analysis: ${e.message}`);
         }
 
         return null;
     }
 
-    // New methods requested by USER
     async summarizeIncidents(incidents: any[]): Promise<string> {
-        const client = this.getClient();
-        if (!client) return "API Key missing.";
-
+        if (!this.initialized) return "AI not initialized.";
         try {
-            const response = await client.models.generateContent({
-                model: this.model,
-                contents: `Analyze these infrastructure and AI security incidents and provide a concise executive summary for an SRE dashboard: ${JSON.stringify(incidents)}`,
-                config: {
-                    systemInstruction: "You are a senior SRE and AI Security expert. Provide high-level technical summaries of incidents.",
-                    temperature: 0.3,
-                }
-            });
-            return response.text || "Unable to generate summary.";
+            const prompt = `Analyze these infrastructure and AI security incidents and provide a concise executive summary for an SRE dashboard: ${JSON.stringify(incidents)}`;
+            if (this.provider === "openai" && this.openaiClient) {
+                const response = await this.openaiClient.chat.completions.create({
+                    model: this.model,
+                    messages: [{ role: "user", content: prompt }]
+                });
+                return response.choices[0].message.content || "No summary generated.";
+            } else if (this.geminiClient) {
+                const model = (this.geminiClient as any).getGenerativeModel({ model: this.model });
+                const response = await model.generateContent(prompt);
+                return response.response.text();
+            }
         } catch (error: any) {
             return `Summary Error: ${error.message}`;
         }
+        return "Provider unavailable.";
     }
 
     async getRiskInsight(logEntry: any): Promise<string> {
-        const client = this.getClient();
-        if (!client) return "API Key missing.";
-
+        if (!this.initialized) return "AI not initialized.";
         try {
-            const response = await client.models.generateContent({
-                model: this.model,
-                contents: `Assess the risk of this AI interaction log. Risk Score is ${logEntry.riskScore}. Model is ${logEntry.model}. Provide a one-sentence recommendation.`,
-            });
-            return response.text || "Risk analysis unavailable.";
+            const prompt = `Assess the risk of this AI interaction log. Risk Score is ${logEntry.riskScore}. Model is ${logEntry.model}. Provide a one-sentence recommendation.`;
+            if (this.provider === "openai" && this.openaiClient) {
+                const response = await this.openaiClient.chat.completions.create({
+                    model: this.model,
+                    messages: [{ role: "user", content: prompt }]
+                });
+                return response.choices[0].message.content || "No insight generated.";
+            } else if (this.geminiClient) {
+                const model = (this.geminiClient as any).getGenerativeModel({ model: this.model });
+                const response = await model.generateContent(prompt);
+                return response.response.text();
+            }
         } catch (error: any) {
             return `Risk Insight Error: ${error.message}`;
         }
+        return "Provider unavailable.";
     }
 }

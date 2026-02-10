@@ -8,13 +8,20 @@ export interface ServerProfile {
     type: string;
     arch: string;
     cpus: number;
-    totalMemory: number;
-    freeMemory: number;
-    memoryUsage: number;
+    memory: {
+        total: number;
+        free: number;
+        used: number;
+        usagePercent: number;
+    };
     networkInterfaces: NodeJS.Dict<os.NetworkInterfaceInfo[]>;
     uptime: number;
-    cpuLoad: number;
-    diskUsage: number; // Percentage
+    cpu: {
+        load: number;
+    };
+    disk: {
+        usagePercent: number;
+    };
 }
 
 export function getSystemStats(): ServerProfile {
@@ -41,13 +48,20 @@ export function getSystemStats(): ServerProfile {
         type: os.type(),
         arch: os.arch(),
         cpus: cpuCount,
-        totalMemory: total,
-        freeMemory: free,
-        memoryUsage: Math.round(((total - free) / total) * 100),
+        memory: {
+            total,
+            free,
+            used: total - free,
+            usagePercent: Math.round(((total - free) / total) * 100)
+        },
         networkInterfaces: os.networkInterfaces(),
         uptime: os.uptime(),
-        cpuLoad,
-        diskUsage
+        cpu: {
+            load: cpuLoad
+        },
+        disk: {
+            usagePercent: diskUsage
+        }
     };
 }
 
