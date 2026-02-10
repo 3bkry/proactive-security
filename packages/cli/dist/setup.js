@@ -216,7 +216,7 @@ async function runSetup() {
             message: (answers) => {
                 console.log(chalk_1.default.cyan('\n💡 Sentinel Cloud allows you to monitor this server from anywhere.'));
                 console.log(chalk_1.default.cyan(`🔗 Sign up or login at: ${chalk_1.default.bold('https://proactive-security-web.vercel.app/register')}\n`));
-                return 'Enter your Sentinel Agent Key (leave empty to skip):';
+                return 'Enter your Sentinel Agent Key (Found in Dashboard -> Settings):';
             },
             when: (answers) => answers.enableCloud,
             default: config.SENTINEL_AGENT_KEY || '',

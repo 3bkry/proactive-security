@@ -8,6 +8,22 @@ const core_1 = require("@sentinel/core");
 const child_process_1 = require("child_process");
 const path_1 = __importDefault(require("path"));
 const program = new commander_1.Command();
+const fs_1 = __importDefault(require("fs"));
+// Load .env manually if present
+const envPath = path_1.default.resolve(__dirname, '../../../.env');
+if (fs_1.default.existsSync(envPath)) {
+    const envConfig = fs_1.default.readFileSync(envPath, 'utf8');
+    envConfig.split('\n').forEach(line => {
+        const match = line.match(/^([^=]+)=(.*)$/);
+        if (match) {
+            const key = match[1].trim();
+            const value = match[2].trim().replace(/^"(.*)"$/, '$1');
+            if (!process.env[key]) {
+                process.env[key] = value;
+            }
+        }
+    });
+}
 program
     .name('sentinelctl')
     .description('Control SentinelAI Security Agent')
