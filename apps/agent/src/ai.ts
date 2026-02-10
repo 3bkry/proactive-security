@@ -16,6 +16,9 @@ export class AIManager {
     public totalCost: number = 0;
     public requestCount: number = 0;
 
+    // Deduplication cache
+    private analysisCache: Map<string, any> = new Map();
+
     public promptTemplate: string = `You are an elite Cyber Security Analyst. 
 Analyze the following log entry and determine if it represents a threat (Intrusion, SQL Injection, DOS, SSH Bruteforce, etc.).
 
@@ -37,6 +40,7 @@ Respond ONLY with this JSON structure:
     public history: Array<{ timestamp: string, log: string, prompt: string, response: any, tokens: number, cost: number }> = [];
 
     constructor() {
+        log("[AI] Neural Engine v1.5 Initialized with Deduplication");
         this.initializeFromConfig();
     }
 
@@ -79,12 +83,39 @@ Respond ONLY with this JSON structure:
         this.initialized = !!(this.geminiClient || this.openaiClient);
     }
 
+    async testConnection(): Promise<boolean> {
+        if (!this.initialized || !this.geminiClient) return false;
+        try {
+            const response = await this.geminiClient.models.generateContent({
+                model: this.model,
+                contents: 'ping',
+            });
+            return !!response.text;
+        } catch (error) {
+            log(`[AI] Gemini connection probe failed: ${error}`);
+            return false;
+        }
+    }
+
+    private getLogFingerprint(logLine: string): string {
+        // Strip timestamps (usually at beginning)
+        let fingerprint = logLine.replace(/^\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}/, ''); // syslog date
+        fingerprint = fingerprint.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\S*/, ''); // ISO date
+
+        // Strip common variable parts like PIDs, UUIDs, IPs to improve hit rate
+        fingerprint = fingerprint.replace(/\[\d+\]/, '[PID]'); // [1234] -> [PID]
+        fingerprint = fingerprint.replace(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/gi, '[UUID]');
+
+        return fingerprint.trim();
+    }
+
     async analyze(logLine: string): Promise<{ risk: string, summary: string, ip?: string, action?: string, tokens: number, usage: { totalTokens: number, totalCost: number, requestCount: number } } | null> {
         if (!this.initialized) return null;
 
         const maxLen = 500;
         const truncatedLine = logLine.length > maxLen ? logLine.substring(0, maxLen) + "...[truncated]" : logLine;
 
+        // 1. Basic suspicious pattern check
         const suspiciousPatterns = /failed|error|denied|refused|unauthorized|sudo|panic|fatal|exception/i;
         if (!suspiciousPatterns.test(logLine)) {
             return {
@@ -93,6 +124,18 @@ Respond ONLY with this JSON structure:
                 ip: undefined,
                 action: "Skipped",
                 tokens: 0,
+                usage: { totalTokens: this.totalTokens, totalCost: this.totalCost, requestCount: this.requestCount }
+            };
+        }
+
+        // 2. Deduplication check
+        const fingerprint = this.getLogFingerprint(truncatedLine);
+        if (this.analysisCache.has(fingerprint)) {
+            log(`[AI] Cache Hit: Skipping analysis for similar log: ${fingerprint.substring(0, 50)}...`);
+            const cachedResult = this.analysisCache.get(fingerprint);
+            return {
+                ...cachedResult,
+                tokens: 0, // No new tokens spent
                 usage: { totalTokens: this.totalTokens, totalCost: this.totalCost, requestCount: this.requestCount }
             };
         }
@@ -117,24 +160,40 @@ Respond ONLY with this JSON structure:
                 // Pricing for GPT-4o (est)
                 cost = ((response.usage?.prompt_tokens || 0) / 1000000 * 5) + ((response.usage?.completion_tokens || 0) / 1000000 * 15);
             } else if (this.geminiClient) {
-                const model = (this.geminiClient as any).getGenerativeModel({ model: this.model });
-                const response = await model.generateContent(prompt);
-                const text = response.response.text();
+                const response = await this.geminiClient.models.generateContent({
+                    model: this.model,
+                    contents: prompt
+                });
+                const text = response.text || "";
 
                 const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
                 result = JSON.parse(jsonStr);
 
-                // Gemini estimation (SDK doesn't always provide tokens easily in same call)
-                const inputTokens = Math.ceil(prompt.length / 4);
-                const outputTokens = Math.ceil(text.length / 4);
-                tokens = inputTokens + outputTokens;
-                cost = (inputTokens / 1000000 * 0.35) + (outputTokens / 1000000 * 0.70);
+                // Gemini usage metadata
+                if (response.usageMetadata) {
+                    tokens = (response.usageMetadata.promptTokenCount || 0) + (response.usageMetadata.candidatesTokenCount || 0);
+                    cost = ((response.usageMetadata.promptTokenCount || 0) / 1000000 * 0.35) + ((response.usageMetadata.candidatesTokenCount || 0) / 1000000 * 0.70);
+                } else {
+                    // Fallback estimation
+                    const inputTokens = Math.ceil(prompt.length / 4);
+                    const outputTokens = Math.ceil(text.length / 4);
+                    tokens = inputTokens + outputTokens;
+                    cost = (inputTokens / 1000000 * 0.35) + (outputTokens / 1000000 * 0.70);
+                }
             }
 
             if (result) {
                 this.totalTokens += tokens;
                 this.totalCost += cost;
                 this.requestCount++;
+
+                // Cache the result for this fingerprint
+                this.analysisCache.set(fingerprint, result);
+                if (this.analysisCache.size > 200) {
+                    // Primitive LRU: Clear if too big
+                    const firstKey = this.analysisCache.keys().next().value;
+                    if (firstKey) this.analysisCache.delete(firstKey);
+                }
 
                 this.history.unshift({
                     timestamp: new Date().toISOString(),
@@ -160,44 +219,54 @@ Respond ONLY with this JSON structure:
     }
 
     async summarizeIncidents(incidents: any[]): Promise<string> {
-        if (!this.initialized) return "AI not initialized.";
+        if (!this.initialized || !this.geminiClient) return "AI not initialized.";
+        const prompt = `Analyze these infrastructure and AI security incidents and provide a concise executive summary for an SRE dashboard: ${JSON.stringify(incidents)}`;
+
         try {
-            const prompt = `Analyze these infrastructure and AI security incidents and provide a concise executive summary for an SRE dashboard: ${JSON.stringify(incidents)}`;
             if (this.provider === "openai" && this.openaiClient) {
                 const response = await this.openaiClient.chat.completions.create({
                     model: this.model,
                     messages: [{ role: "user", content: prompt }]
                 });
                 return response.choices[0].message.content || "No summary generated.";
-            } else if (this.geminiClient) {
-                const model = (this.geminiClient as any).getGenerativeModel({ model: this.model });
-                const response = await model.generateContent(prompt);
-                return response.response.text();
+            } else {
+                const response = await this.geminiClient.models.generateContent({
+                    model: this.model,
+                    contents: prompt,
+                    config: {
+                        systemInstruction: "You are a senior SRE and AI Security expert. Provide high-level technical summaries of incidents.",
+                        temperature: 0.3,
+                    }
+                });
+                return response.text || "Unable to generate summary.";
             }
         } catch (error: any) {
-            return `Summary Error: ${error.message}`;
+            log(`[AI] Summary Error: ${error.message}`);
+            return `Connection Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
-        return "Provider unavailable.";
     }
 
     async getRiskInsight(logEntry: any): Promise<string> {
-        if (!this.initialized) return "AI not initialized.";
+        if (!this.initialized || !this.geminiClient) return "AI not initialized.";
+        const prompt = `Assess the risk of this AI interaction log. Risk Score is ${logEntry.riskScore}. Model is ${logEntry.model}. Provide a one-sentence recommendation.`;
+
         try {
-            const prompt = `Assess the risk of this AI interaction log. Risk Score is ${logEntry.riskScore}. Model is ${logEntry.model}. Provide a one-sentence recommendation.`;
             if (this.provider === "openai" && this.openaiClient) {
                 const response = await this.openaiClient.chat.completions.create({
                     model: this.model,
                     messages: [{ role: "user", content: prompt }]
                 });
                 return response.choices[0].message.content || "No insight generated.";
-            } else if (this.geminiClient) {
-                const model = (this.geminiClient as any).getGenerativeModel({ model: this.model });
-                const response = await model.generateContent(prompt);
-                return response.response.text();
+            } else {
+                const response = await this.geminiClient.models.generateContent({
+                    model: this.model,
+                    contents: prompt,
+                });
+                return response.text || "Risk analysis unavailable.";
             }
         } catch (error: any) {
-            return `Risk Insight Error: ${error.message}`;
+            log(`[AI] Risk insight error: ${error.message}`);
+            return "Risk analysis failure (404/Connection). Check API Key and Model availability.";
         }
-        return "Provider unavailable.";
     }
 }

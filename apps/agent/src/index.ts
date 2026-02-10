@@ -10,8 +10,35 @@ import { TelegramNotifier } from "./telegram.js";
 import { HeartbeatService } from "./heartbeat.js";
 import pty from "node-pty";
 
-// Global WebSocket Server
-const wss = new WebSocketServer({ port: 8081 });
+// Helper to find an available port
+const startWebSocketServer = async (startPort: number): Promise<{ wss: WebSocketServer, port: number }> => {
+    return new Promise((resolve, reject) => {
+        const server = new WebSocketServer({ port: startPort });
+
+        server.on('listening', () => {
+            log(`[Sentinel] WebSocket server listening on port ${startPort}`);
+            resolve({ wss: server, port: startPort });
+        });
+
+        server.on('error', (err: any) => {
+            if (err.code === 'EADDRINUSE') {
+                log(`[Sentinel] Port ${startPort} is already in use. Trying ${startPort + 1}...`);
+                server.close();
+                // Avoid infinite recursion with a reasonable limit
+                if (startPort > 8100) {
+                    reject(new Error("Could not find an available port in range 8081-8100"));
+                    return;
+                }
+                startWebSocketServer(startPort + 1).then(resolve).catch(reject);
+            } else {
+                reject(err);
+            }
+        });
+    });
+};
+
+// Global WebSocket Server (Dynamic Port)
+const { wss, port: selectedPort } = await startWebSocketServer(8081);
 
 import { ResourceMonitor } from "./monitor.js";
 import { CloudClient } from "./cloud.js";

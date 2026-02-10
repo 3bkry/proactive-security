@@ -69,10 +69,19 @@ program
     .description('Stop the Sentinel Agent and Dashboard')
     .action(() => {
         const { execSync } = require('child_process');
-        console.log('Stopping SentinelAI components...');
+        console.log('🛑 Stopping all SentinelAI services...');
         try {
-            // Kill processes on ports 3000 and 8081
-            execSync('fuser -k 3000/tcp 8081/tcp 2>/dev/null || true');
+            // Kill processes on ports 3000 (web) and any port in the 8081-8100 range (agent)
+            // also kill anything matched by binary name/path
+            execSync('fuser -k 3000/tcp 2>/dev/null || true');
+            execSync('fuser -k 8081/tcp 8082/tcp 8083/tcp 8084/tcp 8085/tcp 2>/dev/null || true');
+
+            // Kill any node processes running our agent or web app
+            try {
+                execSync('pkill -f "apps/agent/dist/index.js" || true');
+                execSync('pkill -f "apps/web/.next" || true');
+            } catch (e) { }
+
             console.log('✅ Services stopped successfully.');
         } catch (e) {
             console.error('❌ Failed to stop services cleanly.');
