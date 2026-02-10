@@ -271,14 +271,18 @@ Respond ONLY with this JSON structure:
                 };
             }
         } catch (e: any) {
-            // Handle Rate Limiting (429)
+            // Unified Cooldown for ANY AI Error (404, 429, 401, etc.)
+            const cooldownMs = 5 * 60 * 1000; // 5 minutes
+            this.rateLimitCooldown = Date.now() + cooldownMs;
+
             if (e.message?.includes("429") || e.status === 429) {
-                const cooldownMs = 5 * 60 * 1000; // 5 minutes
-                this.rateLimitCooldown = Date.now() + cooldownMs;
                 log(`[AI] ⚠️ Quota Exceeded (429). Pausing AI analysis for 5 minutes.`);
-                return null;
+            } else if (e.message?.includes("404") || e.status === 404) {
+                log(`[AI] ⚠️ Model not found or Access Denied (${this.model}). Falling back to Shield Mode for 5 minutes.`);
+            } else {
+                log(`[AI] ⚠️ API Error: ${e.message}. Pausing AI for 5 minutes.`);
             }
-            log(`[AI] Error during analysis: ${e.message}`);
+            return null;
         }
 
         return null;
@@ -419,8 +423,10 @@ Respond ONLY with this JSON structure:
                     isEnriched: true
                 };
             }
-        } catch (e) {
-            log(`[AI] Forensic enrichment failed: ${e}`);
+        } catch (e: any) {
+            // Also trigger cooldown on enrichment failure
+            this.rateLimitCooldown = Date.now() + 5 * 60 * 1000;
+            log(`[AI] Forensic enrichment failed: ${e.message}. Pausing AI for 5 minutes.`);
         }
 
         return initialResult;
