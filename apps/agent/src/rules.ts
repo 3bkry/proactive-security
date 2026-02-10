@@ -4,6 +4,7 @@ export interface OWASPMatch {
     risk: "LOW" | "MEDIUM" | "HIGH";
     summary: string;
     action: string;
+    immediate?: boolean;
 }
 
 export class OWASPScanner {
@@ -53,7 +54,8 @@ export class OWASPScanner {
                     category: rule.category,
                     risk: rule.risk as any,
                     summary: rule.summary,
-                    action: "Instant block recommended (Match: " + rule.category + ")"
+                    action: "Instant block recommended (Match: " + rule.category + ")",
+                    immediate: rule.risk === "HIGH" // Auto-block HIGH risk OWASP matches
                 };
             }
         }

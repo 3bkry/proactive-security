@@ -371,6 +371,7 @@ watcher.on("file_changed", async (path) => {
                 summary: `[OWASP ${owaspMatch.category}] ${owaspMatch.summary}`,
                 ip: ip,
                 action: owaspMatch.action,
+                immediate: owaspMatch.immediate, // Carry the flag
                 tokens: 0,
                 usage: { totalTokens: aiManager.totalTokens, totalCost: aiManager.totalCost, requestCount: aiManager.requestCount }
             };
@@ -435,14 +436,23 @@ watcher.on("file_changed", async (path) => {
                 }
 
                 if (result.ip && (result.risk === "HIGH" || result.risk === "MEDIUM")) {
-                    const strikes = banManager.addStrike(result.ip);
-                    log(`[Active Defense] Strike ${strikes}/5 for IP ${result.ip}`);
-
-                    if (strikes >= banManager.MAX_STRIKES) {
-                        await banManager.banIP(result.ip);
-                        telegram.notifyBan(result.ip, "has exceeded strike limit.");
+                    if ((result as any).immediate) {
+                        log(`[Active Defense] 🔥 IMMEDIATE BAN TRIGGERED for IP ${result.ip}`);
+                        await banManager.banIP(result.ip, result.summary);
+                        telegram.notifyBan(result.ip, result.summary);
                         if (cloudClient) {
-                            cloudClient.sendAlert("IP_BANNED", `IP ${result.ip} banned after ${banManager.MAX_STRIKES} strikes.`, { ip: result.ip, reason: "Excessive suspicious activity" });
+                            cloudClient.sendAlert("IP_BANNED", `IP ${result.ip} banned immediately (Local Rules Match).`, { ip: result.ip, reason: result.summary });
+                        }
+                    } else {
+                        const strikes = banManager.addStrike(result.ip);
+                        log(`[Active Defense] Strike ${strikes}/5 for IP ${result.ip}`);
+
+                        if (strikes >= banManager.MAX_STRIKES) {
+                            await banManager.banIP(result.ip);
+                            telegram.notifyBan(result.ip, "has exceeded strike limit.");
+                            if (cloudClient) {
+                                cloudClient.sendAlert("IP_BANNED", `IP ${result.ip} banned after ${banManager.MAX_STRIKES} strikes.`, { ip: result.ip, reason: "Excessive suspicious activity" });
+                            }
                         }
                     }
                 }
