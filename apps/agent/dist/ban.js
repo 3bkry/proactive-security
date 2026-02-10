@@ -64,15 +64,18 @@ export class BanManager {
         const cmdInput = `iptables -C INPUT -s ${ip} -j DROP 2>/dev/null || iptables -I INPUT 1 -s ${ip} -j DROP`;
         // Block on DOCKER-USER chain (Containers) - improved security for Docker hosts
         const cmdDocker = `iptables -C DOCKER-USER -s ${ip} -j DROP 2>/dev/null || (iptables -L DOCKER-USER >/dev/null 2>&1 && iptables -I DOCKER-USER 1 -s ${ip} -j DROP)`;
-        exec(`${cmdInput} && ${cmdDocker}`, (error) => {
+        exec(cmdInput, (error) => {
             if (error) {
-                // Ignore DOCKER-USER errors if chain doesn't exist, but warn for INPUT
-                if (!error.message.includes("DOCKER-USER")) {
-                    log(`[Defense] ⚠️ Failed to ban ${ip}: ${error.message}. (Ensure agent runs as root)`);
-                }
+                log(`[Defense] ⚠️ Failed to ban ${ip} on host: ${error.message}. (Ensure agent runs as root)`);
             }
             else {
-                // log(`[Defense] ✅ IP ${ip} blocked.`);
+                // Now try Docker ban (okay if it fails/non-docker host)
+                exec(cmdDocker, (dockerError) => {
+                    // No need to log success for docker, only errors if not just "chain missing"
+                    if (dockerError && !dockerError.message.includes("DOCKER-USER")) {
+                        // log(`[Defense] Debug: Docker ban failed (might be non-docker host): ${dockerError.message}`);
+                    }
+                });
             }
         });
     }
