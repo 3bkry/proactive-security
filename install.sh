@@ -106,8 +106,9 @@ echo -e "${GREEN}⬇️  Cloning SentinelAI → ${INSTALL_DIR}${NC}"
 if [ -d "$INSTALL_DIR/.git" ]; then
     echo -e "   Existing installation found — pulling latest..."
     cd "$INSTALL_DIR"
-    git pull --ff-only || {
-        echo -e "${YELLOW}   ⚠ Git pull failed; continuing with existing code.${NC}"
+    git fetch --all
+    git reset --hard origin/main || {
+        echo -e "${YELLOW}   ⚠ Git reset failed; continuing with existing code.${NC}"
     }
 else
     rm -rf "$INSTALL_DIR"
