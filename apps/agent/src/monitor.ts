@@ -99,9 +99,9 @@ export class ResourceMonitor {
             const processes = await getProcessStats('memory');
             rootCause = `*Top Memory Consumers:*\n` + processes.map(p => `• \`${p}\``).join('\n');
         } else if (type === 'DISK') {
-            // Check likely culprits: /var/log, /tmp
-            const logs = await getDiskHogs('/var/log');
-            rootCause = `*Largest Files in /var/log:*\n` + logs.map(f => `• \`${f}\``).join('\n');
+            // Broad scan: /var/log, /tmp, /home
+            const hogs = await getDiskHogs(['/var/log', '/tmp', '/home']);
+            rootCause = `*Global Large Files (Potential Culprits):*\n` + hogs.map(f => `• \`${f}\``).join('\n');
         }
 
         const message = `🚨 **HIGH ${type} ALERT**\n\n` +

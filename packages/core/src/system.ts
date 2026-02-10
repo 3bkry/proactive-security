@@ -77,13 +77,15 @@ export async function getProcessStats(sortBy: 'cpu' | 'memory'): Promise<string[
     });
 }
 
-export async function getDiskHogs(dir: string = '/var/log'): Promise<string[]> {
+export async function getDiskHogs(dirs: string | string[] = ['/var/log', '/tmp', '/home']): Promise<string[]> {
     const { exec } = require('child_process');
+    const pathList = Array.isArray(dirs) ? dirs.join(' ') : dirs;
     return new Promise((resolve) => {
-        // Find top 5 largest files in dir, suppress errors
-        exec(`find ${dir} -type f -exec du -h {} + 2>/dev/null | sort -rh | head -n 5`, (err: any, stdout: string) => {
+        // Find top 5 largest files across specified paths, suppress errors and limit depth to avoid total system lockup
+        const command = `find ${pathList} -type f -size +10M -exec du -h {} + 2>/dev/null | sort -rh | head -n 5`;
+        exec(command, (err: any, stdout: string) => {
             if (err) return resolve([]);
-            resolve(stdout.trim().split('\n'));
+            resolve(stdout.trim().split('\n').filter(line => line.trim() !== ''));
         });
     });
 }
