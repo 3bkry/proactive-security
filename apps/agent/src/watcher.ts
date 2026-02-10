@@ -77,82 +77,70 @@ export class LogWatcher extends EventEmitter {
     }
 
     public static discoverFiles(): string[] {
-        const rootPaths = [
-            "/var/log",
-            path.join(os.homedir(), ".pm2/logs"),
-            "/home/antigravity", // User home for custom logs
+        const safePatterns = [
+            // Core System Logs
+            "/var/log/syslog",
+            "/var/log/auth.log",
+            "/var/log/kern.log",
+            "/var/log/dmesg",
+            "/var/log/dpkg.log",
+            "/var/log/ufw.log",
+            // Common Web Servers (Default locations)
+            "/var/log/nginx/access.log",
+            "/var/log/nginx/error.log",
+            "/var/log/apache2/access.log",
+            "/var/log/apache2/error.log",
+            "/var/log/httpd/access_log",
+            "/var/log/httpd/error_log",
+            // Database
+            "/var/log/mysql/error.log",
+            "/var/log/redis/redis-server.log",
+            // PHP
+            "/var/log/php*-fpm.log",
         ];
 
         const discovered: string[] = [];
-        const seen = new Set<string>();
 
-        const scan = (dir: string, depth: number = 0) => {
-            if (depth > 2) return; // Hard Limit depth to 2
-            if (!fs.existsSync(dir)) return;
-
-            // Manual Hard Excludes for Discovery
-            if (dir.startsWith("/proc") || dir.startsWith("/sys") || dir.startsWith("/dev") || dir.startsWith("/run") || dir.includes("node_modules") || dir.includes(".next")) return;
-
-            try {
-                const stats = fs.statSync(dir);
-                if (!stats.isDirectory()) return;
-
-                const items = fs.readdirSync(dir);
-                for (const item of items) {
-                    const fullPath = path.join(dir, item);
-                    try {
-                        if (!fs.existsSync(fullPath)) continue;
-                        const s = fs.statSync(fullPath);
-
-                        if (s.isDirectory()) {
-                            // Only recurse into relevant directories to avoid massive scans
-                            const lowerItem = item.toLowerCase();
-                            if (depth === 0 ||
-                                lowerItem.includes("log") ||
-                                lowerItem.includes("nginx") ||
-                                lowerItem.includes("apache") ||
-                                lowerItem.includes("php") ||
-                                lowerItem.includes("mysql") ||
-                                lowerItem.includes("redis")) {
-                                scan(fullPath, depth + 1);
-                            }
-                        } else if (s.isFile()) {
-                            const lowerFile = item.toLowerCase();
-
-                            // 1. MANDATORY Freshness (30 days)
-                            const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-                            if (s.mtimeMs < thirtyDaysAgo) return;
-
-                            // 2. Strict Identification
-                            const isCoreLog = lowerFile === "syslog" ||
-                                lowerFile === "auth.log" ||
-                                lowerFile === "kern.log";
-
-                            // Must end with .log exactly
-                            const endsWithLog = lowerFile.endsWith(".log");
-
-                            // 3. Strict Exclusion Filters (Apply to everything)
-                            const isCompressed = lowerFile.endsWith(".gz") || lowerFile.endsWith(".zip") || lowerFile.endsWith(".tar");
-                            const isRotated = /\.\d+$/.test(lowerFile) || lowerFile.includes(".log.");
-                            const isBackup = lowerFile.includes(".bak") || lowerFile.includes(".old") || lowerFile.includes(".backup") || lowerFile.includes("-202");
-
-                            // Combination: Must be Core OR end in .log AND not be filtered
-                            if ((isCoreLog || endsWithLog) && !isCompressed && !isRotated && !isBackup && !seen.has(fullPath)) {
-                                discovered.push(fullPath);
-                                seen.add(fullPath);
-                            }
-                        }
-                    } catch (e) {
-                        // Skip unreadable files/dirs
-                    }
-                }
-            } catch (e) {
-                // Skip unreadable dirs
+        const checkAndAdd = (p: string) => {
+            if (fs.existsSync(p)) {
+                discovered.push(p);
             }
         };
 
-        for (const p of rootPaths) {
-            scan(p);
+        for (const pattern of safePatterns) {
+            if (pattern.includes("*")) {
+                // Simple wildcard handling for one level (e.g. php*-fpm.log)
+                const dir = path.dirname(pattern);
+                const filePattern = path.basename(pattern);
+                if (fs.existsSync(dir)) {
+                    try {
+                        const files = fs.readdirSync(dir);
+                        for (const f of files) {
+                            // Convert glob * to regex .*
+                            const regex = new RegExp("^" + filePattern.replace(/\*/g, ".*") + "$");
+                            if (regex.test(f)) {
+                                discovered.push(path.join(dir, f));
+                            }
+                        }
+                    } catch (e) { }
+                }
+            } else {
+                checkAndAdd(pattern);
+            }
+        }
+
+        // Custom user logs (non-recursive, specific folder)
+        const pm2Logs = path.join(os.homedir(), ".pm2/logs");
+        if (fs.existsSync(pm2Logs)) {
+            try {
+                const files = fs.readdirSync(pm2Logs);
+                for (const f of files) {
+                    // Only .log files, exclude sentinel-agent itself to prevent loops
+                    if (f.endsWith(".log") && !f.includes("sentinel-agent")) {
+                        discovered.push(path.join(pm2Logs, f));
+                    }
+                }
+            } catch (e) { }
         }
 
         return discovered;

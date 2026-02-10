@@ -401,19 +401,7 @@ const handleLogLine = async (line: string, path: string) => {
             };
             log(`[Defense] 🛡️ OWASP Match: ${prioritizedMatch.category} detected locally (Shield Mode).`);
 
-            // SAFE MODE CHECK
-            if (isSafeMode) {
-                log(`[Safety] 🛡️ SAFE MODE: Would have banned IP ${result.ip} (Risk: ${result.risk})`);
-                result.action = "Monitor Only (Safe Mode)";
-                (result as any).immediate = false;
-            } else if (isWarmingUp) {
-                // WARMUP CHECK
-                log(`[Safety] ⏳ WARMUP: Would have banned IP ${result.ip} (Risk: ${result.risk})`);
-                result.action = "Monitor Only (Warmup)";
-                (result as any).immediate = false;
-            }
-        }
-        else if (path.endsWith("auth.log") || path.endsWith("secure")) {
+        } else if (path.endsWith("auth.log") || path.endsWith("secure")) {
             const authFailPattern = /failed|failure|invalid user|authentication error|refused|disconnect/i;
             if (authFailPattern.test(lastLine)) {
                 const ipMatch = lastLine.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
@@ -474,6 +462,20 @@ const handleLogLine = async (line: string, path: string) => {
 
                 // Execute Defense
                 if (result.ip && (result.risk === "CRITICAL" || result.risk === "HIGH" || result.risk === "MEDIUM")) {
+
+                    // --- GLOBAL SAFETY CHECK ---
+                    if (isSafeMode) {
+                        log(`[Safety] 🛡️ SAFE MODE: Suppressed defense against ${result.ip} (Risk: ${result.risk})`);
+                        result.action = "Monitor Only (Safe Mode)";
+                        return; // EXIT DEFENSE BLOCK
+                    }
+                    if (isWarmingUp) {
+                        log(`[Safety] ⏳ WARMUP: Suppressed defense against ${result.ip} (Risk: ${result.risk})`);
+                        result.action = "Monitor Only (Warmup)";
+                        return; // EXIT DEFENSE BLOCK
+                    }
+                    // ---------------------------
+
                     if ((result as any).immediate) {
                         const isCritical = result.risk === "CRITICAL";
                         log(`[Active Defense] 🔥 ${isCritical ? 'CRITICAL' : 'IMMEDIATE'} BAN TRIGGERED for IP ${result.ip}`);
