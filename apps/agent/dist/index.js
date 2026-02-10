@@ -306,15 +306,12 @@ const getSettings = (path) => {
     }
     return logSettings.get(path);
 };
-// Event Listeners
-watcher.on("file_changed", async (path) => {
+const handleLogLine = async (line, path) => {
     try {
         const settings = getSettings(path);
         if (!settings.enabled)
             return;
-        const content = fs.readFileSync(path, 'utf-8');
-        const lines = content.trim().split('\n');
-        const lastLine = lines[lines.length - 1];
+        const lastLine = line.trim();
         if (!lastLine)
             return;
         // 1. Sampling Check
@@ -439,14 +436,12 @@ watcher.on("file_changed", async (path) => {
                                     }));
                                 }
                             });
-                            // Optional: Send enriched detail to Telegram too?
-                            // telegram.sendAlert("INFO", `[Forensics] Target: ${enriched.forensics.target}\nIntent: ${enriched.forensics.intent}`, result.ip);
                         }
                     })();
                 }
             }
         }
-        // Always notify about history updates so the AI page can refresh (even on failure/skip)
+        // Always notify about history updates
         wss.clients.forEach(client => {
             if (client.readyState === WebSocket.OPEN) {
                 client.send(JSON.stringify({
@@ -456,8 +451,73 @@ watcher.on("file_changed", async (path) => {
         });
     }
     catch (e) {
-        log(`Error processing file change on ${path}: ${e}`);
+        log(`[Error] Failed to handle log line: ${e}`);
     }
+};
+// Offset tracking for incremental reading
+const fileOffsets = new Map();
+const tailAndWatch = async (path) => {
+    if (!fs.existsSync(path))
+        return;
+    try {
+        const stats = fs.statSync(path);
+        fileOffsets.set(path, stats.size);
+        // Read last 50 lines (Rough estimate: 10KB usually covers it)
+        const bufferSize = Math.min(stats.size, 10 * 1024);
+        if (bufferSize > 0) {
+            const buffer = Buffer.alloc(bufferSize);
+            const fd = fs.openSync(path, 'r');
+            fs.readSync(fd, buffer, 0, bufferSize, stats.size - bufferSize);
+            fs.closeSync(fd);
+            const content = buffer.toString('utf-8');
+            const lines = content.split('\n').filter(l => l.trim().length > 0);
+            const last50 = lines.slice(-50);
+            if (last50.length > 0) {
+                log(`[Agent] 🔍 Initial scan: Processing last ${last50.length} lines for ${path}`);
+                for (const line of last50) {
+                    await handleLogLine(line, path);
+                }
+            }
+        }
+    }
+    catch (e) {
+        log(`[Error] Failed to tail file ${path}: ${e}`);
+    }
+};
+// Event Listeners
+watcher.on("file_changed", async (path) => {
+    try {
+        const stats = fs.statSync(path);
+        const oldOffset = fileOffsets.get(path) || 0;
+        if (stats.size < oldOffset) {
+            // File was truncated or rotated
+            log(`[Agent] 🔄 Log rotated: ${path}`);
+            fileOffsets.set(path, 0);
+            await tailAndWatch(path);
+            return;
+        }
+        if (stats.size === oldOffset)
+            return;
+        const newBytesSize = stats.size - oldOffset;
+        const buffer = Buffer.alloc(newBytesSize);
+        const fd = fs.openSync(path, 'r');
+        fs.readSync(fd, buffer, 0, newBytesSize, oldOffset);
+        fs.closeSync(fd);
+        fileOffsets.set(path, stats.size);
+        const content = buffer.toString('utf-8');
+        const lines = content.split('\n');
+        for (const line of lines) {
+            if (line.trim()) {
+                await handleLogLine(line, path);
+            }
+        }
+    }
+    catch (e) {
+        log(`[Error] Error reading new log bytes for ${path}: ${e}`);
+    }
+});
+watcher.on("file_added", async (path) => {
+    await tailAndWatch(path);
 });
 // Load config and watch files
 const configPath = CONFIG_FILE;
@@ -466,11 +526,13 @@ if (fs.existsSync(configPath)) {
     if (config.LOG_PATHS) {
         for (const logPath of config.LOG_PATHS) {
             watcher.add(logPath);
+            tailAndWatch(logPath);
         }
     }
     if (config.WATCH_FILES) {
         for (const watchFile of config.WATCH_FILES) {
             watcher.add(watchFile);
+            tailAndWatch(watchFile);
         }
     }
 }
