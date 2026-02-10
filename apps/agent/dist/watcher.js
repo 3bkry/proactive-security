@@ -11,7 +11,24 @@ export class LogWatcher extends EventEmitter {
         this.watcher = chokidar.watch([], {
             persistent: true,
             ignoreInitial: true,
-            usePolling: true, // Better for log files on some systems
+            usePolling: true,
+            depth: 2, // Hard limit on recursion depth
+            ignored: [
+                /(^|[\/\\])\../, // Dotfiles
+                "**/node_modules/**",
+                "**/.git/**",
+                "**/.next/**",
+                "/proc/**",
+                "/sys/**",
+                "/dev/**",
+                "/run/**",
+                "/tmp/**",
+                "/var/lib/**",
+                "/var/cache/**",
+                // Exclude self-logs
+                path.join(os.homedir(), ".sentinel/logs/**"),
+                path.join(os.homedir(), ".pm2/logs/sentinel-agent*")
+            ]
         });
         this.setupListeners();
     }
@@ -56,14 +73,16 @@ export class LogWatcher extends EventEmitter {
             "/var/log",
             path.join(os.homedir(), ".pm2/logs"),
             "/home/antigravity", // User home for custom logs
-            "/tmp",
         ];
         const discovered = [];
         const seen = new Set();
         const scan = (dir, depth = 0) => {
-            if (depth > 3)
-                return; // Limit depth
+            if (depth > 2)
+                return; // Hard Limit depth to 2
             if (!fs.existsSync(dir))
+                return;
+            // Manual Hard Excludes for Discovery
+            if (dir.startsWith("/proc") || dir.startsWith("/sys") || dir.startsWith("/dev") || dir.startsWith("/run") || dir.includes("node_modules") || dir.includes(".next"))
                 return;
             try {
                 const stats = fs.statSync(dir);

@@ -1,6 +1,7 @@
 import { log, BANNED_IPS_FILE } from "@sentinel/core";
 import { exec } from "child_process";
 import * as fs from 'fs';
+import * as os from 'os';
 export class BanManager {
     strikes = new Map();
     bannedIPs = new Map();
@@ -49,6 +50,22 @@ export class BanManager {
     async banIP(ip, reason = "Automated Defense") {
         if (this.bannedIPs.has(ip))
             return true;
+        // --- SAFETY CHECKS ---
+        if (ip === "127.0.0.1" || ip === "::1" || ip === "localhost") {
+            log(`[Defense] ⚠️ SAFETY: Ignoring ban request for loopback address ${ip}`);
+            return false;
+        }
+        // Check against known system IPs (simple check)
+        const nets = os.networkInterfaces();
+        for (const name of Object.keys(nets)) {
+            for (const net of nets[name] || []) {
+                if (net.address === ip) {
+                    log(`[Defense] ⚠️ SAFETY: Ignoring ban request for SELF-IP ${ip} (${name})`);
+                    return false;
+                }
+            }
+        }
+        // ---------------------
         log(`[Defense] 🛡️ Banning IP: ${ip} (Reason: ${reason})`);
         this.executeBan(ip);
         this.bannedIPs.set(ip, {
@@ -60,6 +77,13 @@ export class BanManager {
         return true;
     }
     executeBan(ip) {
+        // Enforce Allowlist FIRST (Idempotent)
+        // 1. Allow Established Connections
+        const allowEst = `iptables -C INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT`;
+        // 2. Allow Loopback
+        const allowLo = `iptables -C INPUT -i lo -j ACCEPT 2>/dev/null || iptables -A INPUT -i lo -j ACCEPT`;
+        // 3. Allow SSH (Port 22) - Critical for recovery
+        const allowSSH = `iptables -C INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null || iptables -A INPUT -p tcp --dport 22 -j ACCEPT`;
         // Block on INPUT chain (Host)
         const cmdInput = `iptables -C INPUT -s ${ip} -j DROP 2>/dev/null || iptables -I INPUT 1 -s ${ip} -j DROP`;
         // Block on DOCKER-USER chain (Containers) - improved security for Docker hosts
@@ -69,6 +93,10 @@ export class BanManager {
                 log(`[Defense] ⚠️ Failed to ban ${ip} on host: ${error.message}. (Ensure agent runs as root)`);
             }
             else {
+                exec(`${allowEst} && ${allowLo} && ${allowSSH}`, (safetyErr) => {
+                    if (safetyErr)
+                        log(`[Defense] ⚠️ Failed to apply safety allowlist: ${safetyErr.message}`);
+                });
                 // Now try Docker ban (okay if it fails/non-docker host)
                 exec(cmdDocker, (dockerError) => {
                     // No need to log success for docker, only errors if not just "chain missing"

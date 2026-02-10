@@ -36,6 +36,21 @@ const startWebSocketServer = async (startPort) => {
 };
 // Global WebSocket Server (Dynamic Port)
 const { wss, port: selectedPort } = await startWebSocketServer(8081);
+// Safety & Warmup Configuration
+const args = process.argv.slice(2);
+const isSafeMode = args.includes("--safe") || fs.existsSync("/etc/sentinel/SAFE_MODE");
+const WARMUP_DELAY_MS = 60000; // 60s
+let isWarmingUp = true;
+if (isSafeMode) {
+    log("[Safety] 🛡️ STARTING IN SAFE MODE: Active enforcement disabled.");
+}
+else {
+    log(`[Safety] ⏳ Warming up for ${WARMUP_DELAY_MS / 1000}s (Detection Only)...`);
+    setTimeout(() => {
+        isWarmingUp = false;
+        log("[Safety] ✅ Warmup complete. Active Defense engaged.");
+    }, WARMUP_DELAY_MS);
+}
 import { ResourceMonitor } from "./monitor.js";
 import { CloudClient } from "./cloud.js";
 // Initialize Components
@@ -353,6 +368,18 @@ const handleLogLine = async (line, path) => {
                 cves: owaspMatches.flatMap(m => m.cve || [])
             };
             log(`[Defense] 🛡️ OWASP Match: ${prioritizedMatch.category} detected locally (Shield Mode).`);
+            // SAFE MODE CHECK
+            if (isSafeMode) {
+                log(`[Safety] 🛡️ SAFE MODE: Would have banned IP ${result.ip} (Risk: ${result.risk})`);
+                result.action = "Monitor Only (Safe Mode)";
+                result.immediate = false;
+            }
+            else if (isWarmingUp) {
+                // WARMUP CHECK
+                log(`[Safety] ⏳ WARMUP: Would have banned IP ${result.ip} (Risk: ${result.risk})`);
+                result.action = "Monitor Only (Warmup)";
+                result.immediate = false;
+            }
         }
         else if (path.endsWith("auth.log") || path.endsWith("secure")) {
             const authFailPattern = /failed|failure|invalid user|authentication error|refused|disconnect/i;
