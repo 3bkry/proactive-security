@@ -51,7 +51,7 @@ export class OWASPScanner {
         {
             category: "A05:2025-Injection (RCE: React2Shell / Shell2React)",
             risk: "CRITICAL",
-            pattern: /clientReference|__reactServerComponent__|rsc-action|"actionID"|flight-protocol|\"id\":\s*\"[a-f0-9]{32,}\"/i,
+            pattern: /clientReference|__reactServerComponent__|rsc-action|flight-protocol/i,
             summary: "React2Shell unauthenticated RCE attempt targeting RSC Flight protocol",
             confidence: "HIGH",
             cve: ["CVE-2025-55182", "CVE-2025-66478"]
@@ -59,7 +59,7 @@ export class OWASPScanner {
         {
             category: "A05:2025-Injection (RCE: React Server Actions)",
             risk: "CRITICAL",
-            pattern: /use\s+server|serverAction|__NEXT_ACTION__|next-action|action_id|request_id\s*:\s*"[a-f0-9]{32,}"/i,
+            pattern: /use\s+server|serverAction|__NEXT_ACTION__|next-action/i,
             summary: "React Server Actions abuse or manipulation attempt",
             confidence: "MEDIUM"
         },
