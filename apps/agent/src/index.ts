@@ -373,6 +373,9 @@ watcher.on("file_changed", async (path) => {
                     if (strikes >= banManager.MAX_STRIKES) {
                         await banManager.banIP(result.ip);
                         telegram.notifyBan(result.ip, "has exceeded strike limit.");
+                        if (cloudClient) {
+                            cloudClient.sendAlert("IP_BANNED", `IP ${result.ip} banned after ${banManager.MAX_STRIKES} strikes.`, { ip: result.ip, reason: "Excessive suspicious activity" });
+                        }
                     }
                 }
             }
