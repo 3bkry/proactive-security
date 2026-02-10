@@ -146,7 +146,7 @@ Respond ONLY with this JSON structure:
         const maxLen = 500;
         const truncatedLine = logLine.length > maxLen ? logLine.substring(0, maxLen) + "...[truncated]" : logLine;
         // 1. Basic suspicious pattern check
-        const suspiciousPatterns = /failed|error|denied|refused|unauthorized|sudo|panic|fatal|exception/i;
+        const suspiciousPatterns = /failed|error|denied|refused|unauthorized|sudo|panic|fatal|exception|union select|eval\(|alert\(|script>|wp-admin|wp-login|\.php|403 |404 |500 |401 /i;
         if (!suspiciousPatterns.test(logLine)) {
             return {
                 risk: "SAFE",
