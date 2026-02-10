@@ -9,7 +9,7 @@ export class AIManager {
     private openaiClient: OpenAI | null = null;
 
     public provider: "gemini" | "openai" = "gemini";
-    public model: string = "gemini-1.5-flash"; // Default to stable model
+    public model: string = "gemini-3-flash-preview"; // Reverted to experimental model
 
     public initialized: boolean = false;
     public totalTokens: number = 0;
@@ -44,7 +44,7 @@ Respond ONLY with this JSON structure:
     public history: Array<{ timestamp: string, log: string, prompt: string, response: any, tokens: number, cost: number }> = [];
 
     constructor() {
-        log("[AI] Neural Engine v1.6 Initialized (Stable Model + Rate Limit Protection)");
+        log("[AI] Neural Engine v1.7 Initialized (Experimental Model: gemini-3-flash-preview)");
         this.initializeFromConfig();
     }
 
@@ -64,7 +64,7 @@ Respond ONLY with this JSON structure:
                 if (this.provider === "openai") {
                     this.model = config.OPENAI_MODEL || "gpt-4o";
                 } else {
-                    this.model = config.GEMINI_MODEL || "gemini-1.5-flash";
+                    this.model = config.GEMINI_MODEL || "gemini-3-flash-preview";
                 }
 
                 this.initialized = !!(this.geminiClient || this.openaiClient);
