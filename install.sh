@@ -136,6 +136,9 @@ echo ""
 # ─────────────────────────────────────────────────────────────
 echo -e "${GREEN}📁 Creating system directories...${NC}"
 
+# Cleanup old data (as requested to prevent corruption/bloat)
+rm -rf "$LOG_DIR" "$DATA_DIR"
+
 mkdir -p "$CONFIG_DIR" "$LOG_DIR" "$DATA_DIR"
 
 # Ownership & permissions:
