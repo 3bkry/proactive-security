@@ -9,12 +9,15 @@ export class AIManager {
     private openaiClient: OpenAI | null = null;
 
     public provider: "gemini" | "openai" = "gemini";
-    public model: string = "gemini-3-flash-preview"; // Default
+    public model: string = "gemini-1.5-flash"; // Default to stable model
 
     public initialized: boolean = false;
     public totalTokens: number = 0;
     public totalCost: number = 0;
     public requestCount: number = 0;
+
+    // Rate limiting
+    private rateLimitCooldown: number = 0;
 
     // Deduplication cache
     private analysisCache: Map<string, any> = new Map();
@@ -35,12 +38,13 @@ Respond ONLY with this JSON structure:
   "summary": "Professional dry summary of the finding",
   "ip": "extracted_ip_or_null",
   "action": "Brief recommendation"
-}`;
+}
+`;
 
     public history: Array<{ timestamp: string, log: string, prompt: string, response: any, tokens: number, cost: number }> = [];
 
     constructor() {
-        log("[AI] Neural Engine v1.5 Initialized with Deduplication");
+        log("[AI] Neural Engine v1.6 Initialized (Stable Model + Rate Limit Protection)");
         this.initializeFromConfig();
     }
 
@@ -60,7 +64,7 @@ Respond ONLY with this JSON structure:
                 if (this.provider === "openai") {
                     this.model = config.OPENAI_MODEL || "gpt-4o";
                 } else {
-                    this.model = config.GEMINI_MODEL || "gemini-3-flash-preview";
+                    this.model = config.GEMINI_MODEL || "gemini-1.5-flash";
                 }
 
                 this.initialized = !!(this.geminiClient || this.openaiClient);
@@ -111,6 +115,12 @@ Respond ONLY with this JSON structure:
 
     async analyze(logLine: string): Promise<{ risk: string, summary: string, ip?: string, action?: string, tokens: number, usage: { totalTokens: number, totalCost: number, requestCount: number } } | null> {
         if (!this.initialized) return null;
+
+        // Check Rate Limit Cooldown
+        if (this.rateLimitCooldown > Date.now()) {
+            // Silently skip analysis during cooldown to prevent spamming logs
+            return null;
+        }
 
         const maxLen = 500;
         const truncatedLine = logLine.length > maxLen ? logLine.substring(0, maxLen) + "...[truncated]" : logLine;
@@ -212,6 +222,13 @@ Respond ONLY with this JSON structure:
                 };
             }
         } catch (e: any) {
+            // Handle Rate Limiting (429)
+            if (e.message?.includes("429") || e.status === 429) {
+                const cooldownMs = 5 * 60 * 1000; // 5 minutes
+                this.rateLimitCooldown = Date.now() + cooldownMs;
+                log(`[AI] ⚠️ Quota Exceeded (429). Pausing AI analysis for 5 minutes.`);
+                return null;
+            }
             log(`[AI] Error during analysis: ${e.message}`);
         }
 
@@ -220,6 +237,7 @@ Respond ONLY with this JSON structure:
 
     async summarizeIncidents(incidents: any[]): Promise<string> {
         if (!this.initialized || !this.geminiClient) return "AI not initialized.";
+        if (this.rateLimitCooldown > Date.now()) return "AI analysis paused due to rate limit cooldown.";
         const prompt = `Analyze these infrastructure and AI security incidents and provide a concise executive summary for an SRE dashboard: ${JSON.stringify(incidents)}`;
 
         try {
@@ -241,6 +259,11 @@ Respond ONLY with this JSON structure:
                 return response.text || "Unable to generate summary.";
             }
         } catch (error: any) {
+            if (error.message?.includes("429") || error.status === 429) {
+                this.rateLimitCooldown = Date.now() + 5 * 60 * 1000;
+                log(`[AI] ⚠️ Quota Exceeded (429) during summary. Pausing AI for 5 minutes.`);
+                return "AI paused due to rate limits.";
+            }
             log(`[AI] Summary Error: ${error.message}`);
             return `Connection Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
@@ -248,6 +271,7 @@ Respond ONLY with this JSON structure:
 
     async getRiskInsight(logEntry: any): Promise<string> {
         if (!this.initialized || !this.geminiClient) return "AI not initialized.";
+        if (this.rateLimitCooldown > Date.now()) return "AI paused (Rate Limit).";
         const prompt = `Assess the risk of this AI interaction log. Risk Score is ${logEntry.riskScore}. Model is ${logEntry.model}. Provide a one-sentence recommendation.`;
 
         try {
@@ -265,6 +289,10 @@ Respond ONLY with this JSON structure:
                 return response.text || "Risk analysis unavailable.";
             }
         } catch (error: any) {
+            if (error.message?.includes("429") || error.status === 429) {
+                this.rateLimitCooldown = Date.now() + 5 * 60 * 1000;
+                return "AI paused (Rate Limit).";
+            }
             log(`[AI] Risk insight error: ${error.message}`);
             return "Risk analysis failure (404/Connection). Check API Key and Model availability.";
         }
