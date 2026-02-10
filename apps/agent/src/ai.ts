@@ -370,13 +370,21 @@ Respond ONLY with this JSON structure:
         const maxLen = 1000;
         const truncatedLine = logLine.length > maxLen ? logLine.substring(0, maxLen) + "...[truncated]" : logLine;
 
+        let context = "";
+        if (initialResult.cves && initialResult.cves.length > 0) {
+            context += `\nPotential CVEs: ${initialResult.cves.join(", ")}`;
+        }
+        if (initialResult.allMatches && initialResult.allMatches.length > 1) {
+            context += `\nSecondary Findings: ${initialResult.allMatches.slice(1).map((m: any) => m.category).join(", ")}`;
+        }
+
         const prompt = `You are a Lead Forensic Security Architect.
 A local rule engine has already flagged the following log as suspicious using the OWASP Top 10:2025 standard.
 I need you to perform a DEEP FORENSIC ENRICHMENT.
 
 Log: "{{log}}"
 Heuristic Finding: {{summary}}
-Initial Risk: {{risk}}
+Initial Risk: {{risk}}${context}
 
 Your task:
 1. Identify the specific vulnerability or component being targeted (Reference OWASP 2025 categories).

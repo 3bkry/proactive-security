@@ -329,22 +329,29 @@ const handleLogLine = async (line, path) => {
         // 3. SPECIAL HANDLING: OWASP Local Rules (Priority 1)
         let result = null;
         let isLocalMatch = false;
-        const owaspMatch = OWASPScanner.scan(lastLine);
-        if (owaspMatch) {
+        const owaspMatches = OWASPScanner.scan(lastLine);
+        if (owaspMatches.length > 0) {
             isLocalMatch = true;
+            // Prioritize highest risk
+            const prioritizedMatch = owaspMatches.reduce((prev, curr) => {
+                const risks = { "LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3 };
+                return (risks[curr.risk] || 0) > (risks[prev.risk] || 0) ? curr : prev;
+            }, owaspMatches[0]);
             // Extract IP if possible
             const ipMatch = lastLine.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
             const ip = ipMatch ? ipMatch[0] : undefined;
             result = {
-                risk: owaspMatch.risk,
-                summary: `[OWASP ${owaspMatch.category}] ${owaspMatch.summary}`,
+                risk: prioritizedMatch.risk,
+                summary: `[OWASP ${prioritizedMatch.category}] ${prioritizedMatch.summary}`,
                 ip: ip,
-                action: owaspMatch.action,
-                immediate: owaspMatch.immediate, // Carry the flag
+                action: prioritizedMatch.action,
+                immediate: prioritizedMatch.immediate, // Carry the flag (CRITICAL/HIGH are immediate)
                 tokens: 0,
-                usage: { totalTokens: aiManager.totalTokens, totalCost: aiManager.totalCost, requestCount: aiManager.requestCount }
+                usage: { totalTokens: aiManager.totalTokens, totalCost: aiManager.totalCost, requestCount: aiManager.requestCount },
+                allMatches: owaspMatches,
+                cves: owaspMatches.flatMap(m => m.cve || [])
             };
-            log(`[Defense] 🛡️ OWASP Match: ${owaspMatch.category} detected locally (Shield Mode).`);
+            log(`[Defense] 🛡️ OWASP Match: ${prioritizedMatch.category} detected locally (Shield Mode).`);
         }
         else if (path.endsWith("auth.log") || path.endsWith("secure")) {
             const authFailPattern = /failed|failure|invalid user|authentication error|refused|disconnect/i;
@@ -396,17 +403,18 @@ const handleLogLine = async (line, path) => {
                         }));
                     }
                 });
-                if (result.risk === "HIGH" || result.risk === "MEDIUM") {
+                if (result.risk === "CRITICAL" || result.risk === "HIGH" || result.risk === "MEDIUM") {
                     telegram.sendAlert(result.risk, `${result.summary} (Source: ${path})`, result.ip);
                 }
                 // Execute Defense
-                if (result.ip && (result.risk === "HIGH" || result.risk === "MEDIUM")) {
+                if (result.ip && (result.risk === "CRITICAL" || result.risk === "HIGH" || result.risk === "MEDIUM")) {
                     if (result.immediate) {
-                        log(`[Active Defense] 🔥 IMMEDIATE BAN TRIGGERED for IP ${result.ip}`);
+                        const isCritical = result.risk === "CRITICAL";
+                        log(`[Active Defense] 🔥 ${isCritical ? 'CRITICAL' : 'IMMEDIATE'} BAN TRIGGERED for IP ${result.ip}`);
                         await banManager.banIP(result.ip, result.summary);
                         telegram.notifyBan(result.ip, result.summary);
                         if (cloudClient) {
-                            cloudClient.sendAlert("IP_BANNED", `IP ${result.ip} banned immediately (Shield Mode).`, { ip: result.ip, reason: result.summary });
+                            cloudClient.sendAlert("IP_BANNED", `IP ${result.ip} banned ${isCritical ? 'permanently (CRITICAL)' : 'immediately'} (Shield Mode).`, { ip: result.ip, reason: result.summary, risk: result.risk });
                         }
                     }
                     else {
