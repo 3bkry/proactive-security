@@ -49,14 +49,44 @@ export class OWASPScanner {
             cve: ["CVE-2022-42889"]
         },
         {
+            category: "A05:2025-Injection (RCE: React2Shell / Shell2React)",
+            risk: "CRITICAL",
+            pattern: /clientReference|__reactServerComponent__|rsc-action|"actionID"|flight-protocol|\"id\":\s*\"[a-f0-9]{32,}\"/i,
+            summary: "React2Shell unauthenticated RCE attempt targeting RSC Flight protocol",
+            confidence: "HIGH",
+            cve: ["CVE-2025-55182", "CVE-2025-66478"]
+        },
+        {
+            category: "A05:2025-Injection (RCE: React Server Actions)",
+            risk: "CRITICAL",
+            pattern: /use\s+server|serverAction|__NEXT_ACTION__|next-action|action_id|request_id\s*:\s*"[a-f0-9]{32,}"/i,
+            summary: "React Server Actions abuse or manipulation attempt",
+            confidence: "MEDIUM"
+        },
+        {
+            category: "A05:2025-Injection (Node Module Loader Abuse)",
+            risk: "CRITICAL",
+            pattern: /process\.mainModule\.require|module\.constructor\._load|require\(process\.env|import\(process\.env/i,
+            summary: "Node.js dynamic module loader abuse (post-exploitation)",
+            confidence: "HIGH"
+        },
+        {
             category: "A05:2025-Injection (RCE: React / Next.js)",
             risk: "CRITICAL",
-            pattern: /__proto__|constructor\.prototype|__reactServerComponent__|getServerSideProps.*process\.env/i,
+            pattern: /__proto__|constructor\.prototype|__reactServerComponent__|getServerSideProps.*process\.env|Function\(|new\s+Function\(|eval\(/i,
             summary: "Prototype pollution or React/Next.js server-side RCE vector",
             confidence: "MEDIUM"
         },
 
         /* ===================== INJECTION ===================== */
+
+        {
+            category: "A05:2025-Injection (File Upload Exploit)",
+            risk: "HIGH",
+            pattern: /filename=\".*\.(php|phtml|php3|php4|php5|phps|exe|sh|bat|cmd|pif|scr|js|jar|vbs|vbe|wsf|wsh|msi)\"|Content-Type:\s*application\/x-executable|GIF89a.*<\?php|shell\.php|phpinfo\(\)/i,
+            summary: "Malicious file upload attempt with dangerous extension or shell payload",
+            confidence: "HIGH"
+        },
 
         {
             category: "A05:2025-Injection (SQLi)",
