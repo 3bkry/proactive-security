@@ -182,6 +182,23 @@ export async function runSetup() {
             when: (answers: any) => answers.enableTelegram,
             default: config.TELEGRAM_BOT_TOKEN || '',
             validate: (input: string) => input.length > 10 || 'Token seems too short.'
+        },
+        {
+            type: 'confirm',
+            name: 'enableCloud',
+            message: chalk.magenta('Connect to Sentinel Cloud Dashboard? (Recommended)'),
+            default: true
+        },
+        {
+            type: 'input',
+            name: 'cloudKey',
+            message: (answers: any) => {
+                console.log(chalk.cyan('\n💡 Sentinel Cloud allows you to monitor this server from anywhere.'));
+                console.log(chalk.cyan(`🔗 Sign up or login at: ${chalk.bold('https://proactive-security-web.vercel.app/register')}\n`));
+                return 'Enter your Sentinel Agent Key (leave empty to skip):';
+            },
+            when: (answers: any) => answers.enableCloud,
+            default: config.SENTINEL_AGENT_KEY || '',
         }
     ];
 
@@ -211,6 +228,12 @@ export async function runSetup() {
         if (!config.WATCH_FILES.includes(answers.customLogFile)) {
             config.WATCH_FILES.push(answers.customLogFile);
         }
+    }
+
+    if (answers.cloudKey) {
+        config.SENTINEL_AGENT_KEY = answers.cloudKey;
+        // Also set the Cloud URL by default if key is provided
+        config.SENTINEL_CLOUD_URL = "https://proactive-security-web.vercel.app";
     }
 
     // Save System Info
