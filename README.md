@@ -56,6 +56,34 @@ sentinelctl setup
 - `/banned` - List currently blocked IPs
 - **Interactive Alerts**: Tap "🚫 Ban" or "🔓 Unban" directly on alert messages.
 
+### Prerequisites
+
+*   Node.js 18+
+*   npm or pnpm
+*   **PostgreSQL Database** (We recommend [Neon](https://neon.tech/))
+
+### Environment Variables
+
+Create a `.env` file or calculate the Vercel Environment Variables:
+
+```env
+DATABASE_URL="postgres://user:password@ep-random-123.region.aws.neon.tech/neondb?sslmode=require"
+NEXTAUTH_URL="https://your-app.vercel.app"
+NEXTAUTH_SECRET="your-generated-secret"
+GOOGLE_CLIENT_ID="your-google-client-id"
+GOOGLE_CLIENT_SECRET="your-google-client-secret"
+```
+
+> **Note for Neon Users:** Use the **Pooled Connection String** provided by the Neon dashboard for optimal performance in Serverless environments.
+
+### Deployment
+
+1.  Connect your repository to Vercel.
+2.  Set the Environment Variables in Vercel.
+3.  Deploy. The build process will automatically:
+    -   Push the database schema (`prisma db push`)
+    -   Seed the initial admin user (`admin@sentinel.ai` / `password123`)
+
 ## 🏗️ Architecture
 
 SentinelAI consists of three main components:
