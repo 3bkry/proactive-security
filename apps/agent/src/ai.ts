@@ -128,12 +128,22 @@ Respond ONLY with this JSON structure:
 
     private getLogFingerprint(logLine: string): string {
         // Strip timestamps (usually at beginning)
+        // Strip timestamps (usually at beginning)
         let fingerprint = logLine.replace(/^\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}/, ''); // syslog date
         fingerprint = fingerprint.replace(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\S*/, ''); // ISO date
 
         // Strip common variable parts like PIDs, UUIDs, IPs to improve hit rate
         fingerprint = fingerprint.replace(/\[\d+\]/, '[PID]'); // [1234] -> [PID]
         fingerprint = fingerprint.replace(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/gi, '[UUID]');
+
+        // Strip IPs (IPv4)
+        fingerprint = fingerprint.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[IP]');
+
+        // Strip Hex Strings (often hashes or memory addresses)
+        fingerprint = fingerprint.replace(/0x[a-fA-F0-9]+/g, '[HEX]');
+
+        // Normalise generic "user 'name'" patterns
+        fingerprint = fingerprint.replace(/user\s+['"]\w+['"]/gi, "user '[USER]'");
 
         return fingerprint.trim();
     }
@@ -168,8 +178,20 @@ Respond ONLY with this JSON structure:
         if (this.analysisCache.has(fingerprint)) {
             log(`[AI] Cache Hit: Skipping analysis for similar log: ${fingerprint.substring(0, 50)}...`);
             const cachedResult = this.analysisCache.get(fingerprint);
+
+            // If cache hit, we must extract the IP from the CURRENT log if the cached result had an IP
+            let currentIp = cachedResult.ip;
+            if (cachedResult.ip) {
+                // Simple regex extraction for IPv4
+                const ipMatch = logLine.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+                if (ipMatch) {
+                    currentIp = ipMatch[0];
+                }
+            }
+
             return {
                 ...cachedResult,
+                ip: currentIp,
                 tokens: 0, // No new tokens spent
                 usage: { totalTokens: this.totalTokens, totalCost: this.totalCost, requestCount: this.requestCount }
             };
