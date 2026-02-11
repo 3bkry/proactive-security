@@ -93,8 +93,20 @@ const heartbeat = new HeartbeatService(wss);
 const monitor = new ResourceMonitor(telegram);
 
 // Cloud Client Setup
-const cloudUrl = process.env.SENTINEL_CLOUD_URL;
-const agentKey = process.env.SENTINEL_AGENT_KEY;
+let cloudUrl = process.env.SENTINEL_CLOUD_URL;
+let agentKey = process.env.SENTINEL_AGENT_KEY;
+
+// Fallback: Check config file
+const cloudConfigPath = CONFIG_FILE;
+if (fs.existsSync(cloudConfigPath)) {
+    try {
+        const config = JSON.parse(fs.readFileSync(cloudConfigPath, "utf8"));
+        if (!cloudUrl && config.SENTINEL_CLOUD_URL) cloudUrl = config.SENTINEL_CLOUD_URL;
+        if (!agentKey && config.SENTINEL_AGENT_KEY) agentKey = config.SENTINEL_AGENT_KEY;
+    } catch (e) {
+        log(`[Config] Failed to read config file: ${e}`);
+    }
+}
 
 let cloudClient: CloudClient | null = null;
 
@@ -585,13 +597,59 @@ async function handleLogLine(line: string, path: string) {
 // Offset tracking for incremental reading
 const fileOffsets = new Map<string, number>();
 
+// Helper to determine active startup scan count
+const getStartupLines = (): number => {
+    // Check config first
+    if (fs.existsSync(CONFIG_FILE)) {
+        try {
+            const config = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
+            if (typeof config.STARTUP_READ_LINES === 'number') {
+                return config.STARTUP_READ_LINES;
+            }
+        } catch (e) { }
+    }
+    // Default to 500 lines if not configured (User request: "default can be 500")
+    return 500;
+};
+
 async function tailAndWatch(path: string) {
     if (!fs.existsSync(path)) return;
     try {
         const stats = fs.statSync(path);
-        fileOffsets.set(path, stats.size);
-        // User Request: Don't check old logs, only wait for updates.
-        // log(`[Agent] 🔍 Watching ${path} from offset ${stats.size}`);
+        const fileSize = stats.size;
+
+        let startOffset = fileSize;
+        const startupLines = getStartupLines();
+
+        if (startupLines > 0 && fileSize > 0) {
+            // Estimate bytes needed: 500 lines * ~200 bytes/line = 100KB
+            const ESTIMATED_BYTES_PER_LINE = 200;
+            const readSize = Math.min(fileSize, startupLines * ESTIMATED_BYTES_PER_LINE);
+            const readStart = fileSize - readSize;
+
+            const buffer = Buffer.alloc(readSize);
+            const fd = fs.openSync(path, 'r');
+            fs.readSync(fd, buffer, 0, readSize, readStart);
+            fs.closeSync(fd);
+
+            const content = buffer.toString('utf-8');
+            // Split by newline and take the last N items
+            const allLines = content.split('\n');
+            const linesToProcess = allLines.slice(-startupLines);
+
+            if (linesToProcess.length > 0) {
+                log(`[Agent] 🔍 Startup Scan: Checking last ${linesToProcess.length} lines of ${path}...`);
+                for (const line of linesToProcess) {
+                    if (line.trim()) {
+                        await handleLogLine(line, path);
+                    }
+                }
+            }
+        }
+
+        // Always set offset to END of file to avoid re-reading what we just scanned
+        fileOffsets.set(path, fileSize);
+
     } catch (e) {
         log(`[Error] Failed to tail file ${path}: ${e}`);
     }

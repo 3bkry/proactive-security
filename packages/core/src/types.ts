@@ -39,4 +39,6 @@ export interface SentinelConfig {
     AI_PROVIDER?: "openai" | "gemini" | "zhipu";
     AI_MODEL?: string;
     WHITELIST_IPS?: string[];
+    // How many existing lines to scan on startup (default: 0 or 500)
+    STARTUP_READ_LINES?: number;
 }

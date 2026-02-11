@@ -83,8 +83,22 @@ const telegram = new TelegramNotifier(banManager);
 const heartbeat = new HeartbeatService(wss);
 const monitor = new ResourceMonitor(telegram);
 // Cloud Client Setup
-const cloudUrl = process.env.SENTINEL_CLOUD_URL;
-const agentKey = process.env.SENTINEL_AGENT_KEY;
+let cloudUrl = process.env.SENTINEL_CLOUD_URL;
+let agentKey = process.env.SENTINEL_AGENT_KEY;
+// Fallback: Check config file
+const cloudConfigPath = CONFIG_FILE;
+if (fs.existsSync(cloudConfigPath)) {
+    try {
+        const config = JSON.parse(fs.readFileSync(cloudConfigPath, "utf8"));
+        if (!cloudUrl && config.SENTINEL_CLOUD_URL)
+            cloudUrl = config.SENTINEL_CLOUD_URL;
+        if (!agentKey && config.SENTINEL_AGENT_KEY)
+            agentKey = config.SENTINEL_AGENT_KEY;
+    }
+    catch (e) {
+        log(`[Config] Failed to read config file: ${e}`);
+    }
+}
 let cloudClient = null;
 if (cloudUrl && agentKey) {
     log(`[Cloud] Configuration found. Initializing Cloud Client...`);
