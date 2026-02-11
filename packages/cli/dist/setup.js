@@ -337,6 +337,21 @@ async function runSetup() {
             Spinner.fail('Failed to auto-detect Chat ID.');
         }
     }
+    // Auto-Whitelist Local IPs
+    config.WHITELIST_IPS = config.WHITELIST_IPS || [];
+    const whitelistSet = new Set(config.WHITELIST_IPS);
+    whitelistSet.add("127.0.0.1");
+    whitelistSet.add("::1");
+    const nets = os_1.default.networkInterfaces();
+    for (const name of Object.keys(nets)) {
+        for (const net of nets[name] || []) {
+            if (!net.internal) {
+                whitelistSet.add(net.address);
+            }
+        }
+    }
+    config.WHITELIST_IPS = Array.from(whitelistSet);
+    console.log(chalk_1.default.blue(`\n🛡️  Auto-whitelisted ${config.WHITELIST_IPS.length} local IPs for safety.`));
     fs_1.default.writeFileSync(core_1.CONFIG_FILE, JSON.stringify(config, null, 2));
     await new Promise(resolve => setTimeout(resolve, 1000)); // Fake delight
     spinner.succeed('Configuration saved!');

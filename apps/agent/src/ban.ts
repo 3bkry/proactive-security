@@ -1,4 +1,4 @@
-import { log, BANNED_IPS_FILE } from "@sentinel/core";
+import { log, BANNED_IPS_FILE, CONFIG_FILE } from "@sentinel/core";
 import { exec } from "child_process";
 import * as fs from 'fs';
 import * as path from 'path';
@@ -63,12 +63,13 @@ export class BanManager {
         if (this.bannedIPs.has(ip)) return true;
 
         // --- SAFETY CHECKS ---
-        if (ip === "127.0.0.1" || ip === "::1" || ip === "localhost") {
+        // 1. Hardcoded Loopback Safety
+        if (ip === "127.0.0.1" || ip === "::1" || ip === "0.0.0.0" || ip === "localhost") {
             log(`[Defense] ⚠️ SAFETY: Ignoring ban request for loopback address ${ip}`);
             return false;
         }
 
-        // Check against known system IPs (simple check)
+        // 2. Dynamic Self-IP Detection
         const nets = os.networkInterfaces();
         for (const name of Object.keys(nets)) {
             for (const net of nets[name] || []) {
@@ -77,6 +78,22 @@ export class BanManager {
                     return false;
                 }
             }
+        }
+
+        // 3. User Configured Whitelist
+        try {
+            if (fs.existsSync(CONFIG_FILE)) {
+                // Read fresh config to support dynamic updates
+                const config = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
+                if (config.WHITELIST_IPS && Array.isArray(config.WHITELIST_IPS)) {
+                    if (config.WHITELIST_IPS.includes(ip)) {
+                        log(`[Defense] ⚠️ SAFETY: Ignoring ban request for WHITELISTED IP ${ip}`);
+                        return false;
+                    }
+                }
+            }
+        } catch (e) {
+            log(`[Defense] Warning: Failed to check whitelist config: ${e}`);
         }
         // ---------------------
 

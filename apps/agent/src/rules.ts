@@ -184,13 +184,7 @@ export class OWASPScanner {
 
         /* ===================== MISCONFIG / INFO LEAK ===================== */
 
-        {
-            category: "A02:2025-Security Misconfiguration",
-            risk: "MEDIUM",
-            pattern: /phpinfo\(\)|server-status|actuator\/|swagger-ui|debug|trace\.axd|\.git\/HEAD|\/metrics|\/_health/i,
-            summary: "Debug endpoint or server information disclosure",
-            confidence: "HIGH"
-        },
+
         {
             category: "A10:2025-Exception Leakage",
             risk: "MEDIUM",

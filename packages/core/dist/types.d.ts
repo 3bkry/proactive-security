@@ -26,3 +26,13 @@ export interface DetectionRule {
     pattern: RegExp;
     severity: Severity;
 }
+export interface SentinelConfig {
+    TELEGRAM_BOT_TOKEN?: string;
+    TELEGRAM_CHAT_ID?: string;
+    OPENAI_API_KEY?: string;
+    GEMINI_API_KEY?: string;
+    ZHIPU_API_KEY?: string;
+    AI_PROVIDER?: "openai" | "gemini" | "zhipu";
+    AI_MODEL?: string;
+    WHITELIST_IPS?: string[];
+}

@@ -371,13 +371,41 @@ const getSettings = (path: string) => {
     return logSettings.get(path)!;
 };
 
-const handleLogLine = async (line: string, path: string) => {
+const isNoisyLogLine = (line: string): boolean => {
+    const noisyPatterns = [
+        "PHP Deprecated",
+        "PHP Notice",
+        "Stack trace",
+        "Call to undefined function",
+        "Creation of dynamic property",
+        "Function _load_textdomain_just_in_time was called incorrectly",
+        "Constant FILTER_SANITIZE_STRING is deprecated"
+    ];
+    return noisyPatterns.some(pattern => line.includes(pattern));
+};
+
+async function handleLogLine(line: string, path: string) {
     try {
         const settings = getSettings(path);
         if (!settings.enabled) return;
 
         const lastLine = line.trim();
         if (!lastLine) return;
+
+        // Phase 46: Noise Filtering
+        if (isNoisyLogLine(line)) {
+            return;
+        }
+
+        // Phase 46: IP Requirement (User Request)
+        // "any log that doens't have ip is useless"
+        const ipMatch = line.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+        const ip = ipMatch ? ipMatch[0] : undefined;
+
+        if (!ip) {
+            // log(`[Filter] Dropped log line without IP: ${lastLine.substring(0, 50)}...`); // Silent drop as requested
+            return;
+        }
 
         // 1. Sampling Check
         settings.lineCount++;
@@ -397,7 +425,7 @@ const handleLogLine = async (line: string, path: string) => {
         let result = null;
         let isLocalMatch = false;
 
-        const owaspMatches = OWASPScanner.scan(lastLine);
+        const owaspMatches = OWASPScanner.scan(line);
         if (owaspMatches.length > 0) {
             isLocalMatch = true;
 
@@ -408,7 +436,7 @@ const handleLogLine = async (line: string, path: string) => {
             }, owaspMatches[0]);
 
             // Extract IP if possible
-            const ipMatch = lastLine.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+            const ipMatch = line.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
             const ip = ipMatch ? ipMatch[0] : undefined;
 
             result = {
@@ -426,8 +454,8 @@ const handleLogLine = async (line: string, path: string) => {
 
         } else if (path.endsWith("auth.log") || path.endsWith("secure")) {
             const authFailPattern = /failed|failure|invalid user|authentication error|refused|disconnect/i;
-            if (authFailPattern.test(lastLine)) {
-                const ipMatch = lastLine.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
+            if (authFailPattern.test(line)) {
+                const ipMatch = line.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
                 const ip = ipMatch ? ipMatch[0] : undefined;
 
                 result = {
@@ -441,7 +469,7 @@ const handleLogLine = async (line: string, path: string) => {
             }
         } else {
             // Normal AI Analysis for other logs (Secondary Verification / Discovery)
-            result = await aiManager.analyze(lastLine);
+            result = await aiManager.analyze(line);
         }
 
         if (result) {
@@ -552,36 +580,18 @@ const handleLogLine = async (line: string, path: string) => {
     } catch (e) {
         log(`[Error] Failed to handle log line: ${e}`);
     }
-};
+}
 
 // Offset tracking for incremental reading
 const fileOffsets = new Map<string, number>();
 
-const tailAndWatch = async (path: string) => {
+async function tailAndWatch(path: string) {
     if (!fs.existsSync(path)) return;
     try {
         const stats = fs.statSync(path);
         fileOffsets.set(path, stats.size);
-
-        // Read last 50 lines (Rough estimate: 10KB usually covers it)
-        const bufferSize = Math.min(stats.size, 10 * 1024);
-        if (bufferSize > 0) {
-            const buffer = Buffer.alloc(bufferSize);
-            const fd = fs.openSync(path, 'r');
-            fs.readSync(fd, buffer, 0, bufferSize, stats.size - bufferSize);
-            fs.closeSync(fd);
-
-            const content = buffer.toString('utf-8');
-            const lines = content.split('\n').filter(l => l.trim().length > 0);
-            const last50 = lines.slice(-50);
-
-            if (last50.length > 0) {
-                log(`[Agent] 🔍 Initial scan: Processing last ${last50.length} lines for ${path}`);
-                for (const line of last50) {
-                    await handleLogLine(line, path);
-                }
-            }
-        }
+        // User Request: Don't check old logs, only wait for updates.
+        // log(`[Agent] 🔍 Watching ${path} from offset ${stats.size}`);
     } catch (e) {
         log(`[Error] Failed to tail file ${path}: ${e}`);
     }

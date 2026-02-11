@@ -56,9 +56,9 @@ export class LogWatcher extends EventEmitter {
         try {
             if (fs.existsSync(path)) {
                 const stats = fs.statSync(path);
-                const maxSize = 20 * 1024 * 1024; // 20MB
+                const maxSize = 10 * 1024 * 1024; // 10MB (Reduced from 20MB)
                 if (stats.size > maxSize) {
-                    log(`[Watcher] ⚠️ Skipping large file (>20MB): ${path}`);
+                    log(`[Watcher] ⚠️ Skipping large file (>10MB): ${path}`);
                     this.emit("file_too_large", path, stats.size);
                     return false;
                 }
@@ -100,18 +100,18 @@ export class LogWatcher extends EventEmitter {
             "/var/log/dmesg",
             "/var/log/dpkg.log",
             "/var/log/ufw.log",
-            // Common Web Servers (Default locations)
+            // Common Web Servers (Access logs only - error logs are too noisy)
             "/var/log/nginx/access.log",
-            "/var/log/nginx/error.log",
+            // "/var/log/nginx/error.log", // Disabled by default
             "/var/log/apache2/access.log",
-            "/var/log/apache2/error.log",
+            // "/var/log/apache2/error.log", // Disabled by default
             "/var/log/httpd/access_log",
-            "/var/log/httpd/error_log",
+            // "/var/log/httpd/error_log", // Disabled by default
             // Database
-            "/var/log/mysql/error.log",
-            "/var/log/redis/redis-server.log",
+            // "/var/log/mysql/error.log", // Disabled by default
+            // "/var/log/redis/redis-server.log", // Disabled by default
             // PHP
-            "/var/log/php*-fpm.log",
+            // "/var/log/php*-fpm.log", 
         ];
 
         const discovered: string[] = [];
