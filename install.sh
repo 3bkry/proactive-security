@@ -234,7 +234,7 @@ echo ""
 echo -e "${BLUE}🛡️  Wazuh Security Platform${NC}"
 echo -e "   Would you like to install Wazuh (SIEM & XDR) via Docker?"
 echo -e "   ${YELLOW}Note: This requires ~4GB RAM and Docker installed.${NC}"
-read -p "   Install Wazuh? [y/N] " -n 1 -r
+read -p "   Install Wazuh? [y/N] " -n 1 -r < /dev/tty
 printf "\n"
 
 if [[ $REPLY =~ ^[Yy]$ ]]; then
