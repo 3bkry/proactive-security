@@ -286,6 +286,26 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo -e "   ${GREEN}✔ Wazuh deployed.${NC}"
         echo -e "   Access Dashboard at: ${BLUE}https://<server-ip>:4443${NC}"
         echo -e "   Default credentials: ${YELLOW}admin / admin${NC}"
+
+        # ─────────────────────────────────────────────────────────────
+        # 8b. Install Wazuh Agent on Host (to monitor this server)
+        # ─────────────────────────────────────────────────────────────
+        echo -e ""
+        echo -e "${GREEN}🕵️  Installing Wazuh Agent on host...${NC}"
+        
+        # Add GPG key and repo
+        curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import && chmod 644 /usr/share/keyrings/wazuh.gpg
+        echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | tee /etc/apt/sources.list.d/wazuh.list > /dev/null
+        
+        apt-get update -qq
+        WAZUH_MANAGER="127.0.0.1" apt-get install -y wazuh-agent > /dev/null
+        
+        # Enable and start
+        systemctl daemon-reload
+        systemctl enable wazuh-agent
+        systemctl start wazuh-agent
+        
+        echo -e "   ${GREEN}✔ Wazuh Agent installed & connected to Manager.${NC}"
     fi
 else
     echo -e "   Skipping Wazuh installation."
