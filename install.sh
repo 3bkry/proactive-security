@@ -235,7 +235,7 @@ echo -e "${BLUE}🛡️  Wazuh Security Platform${NC}"
 echo -e "   Would you like to install Wazuh (SIEM & XDR) via Docker?"
 echo -e "   ${YELLOW}Note: This requires ~4GB RAM and Docker installed.${NC}"
 read -p "   Install Wazuh? [y/N] " -n 1 -r
-echo ""
+printf "\n"
 
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     if ! command -v docker &>/dev/null || ! command -v docker-compose &>/dev/null; then
