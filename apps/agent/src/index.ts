@@ -108,6 +108,33 @@ if (fs.existsSync(cloudConfigPath)) {
     }
 }
 
+// Initialize AI Manager for Wazuh
+import { AIManager as WazuhAI } from "./integrations/ai.js";
+const wazuhAI = new WazuhAI();
+
+// Initialize Webhook for Wazuh
+import { WebhookServer } from "./webhook.js";
+const webhook = new WebhookServer(3000, async (alert) => {
+    // 1. Receive Alert
+    const riskMap: Record<number, string> = { 3: "LOW", 4: "LOW", 5: "MEDIUM", 6: "MEDIUM", 7: "HIGH", 8: "HIGH", 9: "HIGH", 10: "CRITICAL", 11: "CRITICAL", 12: "CRITICAL" };
+    const level = alert.rule?.level || 0;
+    const baseRisk = level >= 10 ? "CRITICAL" : (level >= 7 ? "HIGH" : (level >= 5 ? "MEDIUM" : "LOW"));
+
+    // 2. AI Analysis
+    let analysis = await wazuhAI.analyzeWazuhAlert(alert);
+
+    // 3. Notify Telegram
+    if (analysis) {
+        const ip = alert.data?.srcip || alert.agent?.ip;
+        telegram.sendAlert(analysis.risk, `[Wazuh] ${analysis.summary}\nAction: ${analysis.action}`, ip);
+    } else {
+        // Fallback if AI fails or disabled
+        const ip = alert.data?.srcip || alert.agent?.ip;
+        telegram.sendAlert(baseRisk, `[Wazuh] ${alert.rule?.description}`, ip);
+    }
+});
+webhook.start();
+
 let cloudClient: CloudClient | null = null;
 
 if (cloudUrl && agentKey) {

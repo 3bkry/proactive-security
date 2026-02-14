@@ -192,17 +192,22 @@ export class TelegramNotifier {
 
         const options: TelegramBot.SendMessageOptions = { parse_mode: 'Markdown' };
 
-        if (ip && (risk === "HIGH" || risk === "MEDIUM")) {
+        if (ip && (risk === "HIGH" || risk === "MEDIUM" || risk === "CRITICAL")) {
             const isBanned = this.banManager?.isBanned(ip);
+            const keyboard = [];
+
             if (isBanned) {
-                options.reply_markup = {
-                    inline_keyboard: [[{ text: `🔓 Unban ${ip}`, callback_data: `unban_${ip}` }]]
-                };
+                keyboard.push([{ text: `🔓 Unban ${ip}`, callback_data: `unban_${ip}` }]);
             } else {
-                options.reply_markup = {
-                    inline_keyboard: [[{ text: `🚫 Ban IP ${ip}`, callback_data: `ban_${ip}` }]]
-                };
+                keyboard.push([{ text: `🚫 Block IP ${ip}`, callback_data: `ban_${ip}` }]);
             }
+
+            // AI Analysis Button
+            keyboard.push([{ text: `🧠 AI Analyze`, callback_data: `analyze_${ip}` }]);
+
+            options.reply_markup = {
+                inline_keyboard: keyboard
+            };
         }
 
         await this.sendMessage(message, options);

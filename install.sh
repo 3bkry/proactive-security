@@ -229,7 +229,37 @@ fi
 echo ""
 
 # ─────────────────────────────────────────────────────────────
-# 8. Optional: systemd service
+# 8. Wazuh Installation (Optional)
+# ─────────────────────────────────────────────────────────────
+echo -e "${BLUE}🛡️  Wazuh Security Platform${NC}"
+echo -e "   Would you like to install Wazuh (SIEM & XDR) via Docker?"
+echo -e "   ${YELLOW}Note: This requires ~4GB RAM and Docker installed.${NC}"
+read -p "   Install Wazuh? [y/N] " -n 1 -r
+echo ""
+
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    if ! command -v docker &>/dev/null || ! command -v docker-compose &>/dev/null; then
+        echo -e "   ${RED}✖ Docker or Docker Compose not found.${NC}"
+        echo -e "   Please install Docker and try again."
+    else
+        echo -e "   ${GREEN}🚀 Deploying Wazuh containers...${NC}"
+        cp "${INSTALL_DIR}/docker-compose.wazuh.yml" "${INSTALL_DIR}/docker-compose.yml"
+        
+        # Start Wazuh in background
+        (cd "${INSTALL_DIR}" && docker-compose up -d)
+
+        echo -e "   ${GREEN}✔ Wazuh deployed.${NC}"
+        echo -e "   Access Dashboard at: ${BLUE}https://<server-ip>:443${NC}"
+        echo -e "   Default credentials: ${YELLOW}admin / admin${NC}"
+    fi
+else
+    echo -e "   Skipping Wazuh installation."
+fi
+
+echo ""
+
+# ─────────────────────────────────────────────────────────────
+# 9. Optional: systemd service
 # ─────────────────────────────────────────────────────────────
 echo -e "${GREEN}⚙️  Installing systemd service...${NC}"
 

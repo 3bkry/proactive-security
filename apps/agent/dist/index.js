@@ -99,6 +99,30 @@ if (fs.existsSync(cloudConfigPath)) {
         log(`[Config] Failed to read config file: ${e}`);
     }
 }
+// Initialize AI Manager for Wazuh
+import { AIManager as WazuhAI } from "./integrations/ai.js";
+const wazuhAI = new WazuhAI();
+// Initialize Webhook for Wazuh
+import { WebhookServer } from "./webhook.js";
+const webhook = new WebhookServer(3000, async (alert) => {
+    // 1. Receive Alert
+    const riskMap = { 3: "LOW", 4: "LOW", 5: "MEDIUM", 6: "MEDIUM", 7: "HIGH", 8: "HIGH", 9: "HIGH", 10: "CRITICAL", 11: "CRITICAL", 12: "CRITICAL" };
+    const level = alert.rule?.level || 0;
+    const baseRisk = level >= 10 ? "CRITICAL" : (level >= 7 ? "HIGH" : (level >= 5 ? "MEDIUM" : "LOW"));
+    // 2. AI Analysis
+    let analysis = await wazuhAI.analyzeWazuhAlert(alert);
+    // 3. Notify Telegram
+    if (analysis) {
+        const ip = alert.data?.srcip || alert.agent?.ip;
+        telegram.sendAlert(analysis.risk, `[Wazuh] ${analysis.summary}\nAction: ${analysis.action}`, ip);
+    }
+    else {
+        // Fallback if AI fails or disabled
+        const ip = alert.data?.srcip || alert.agent?.ip;
+        telegram.sendAlert(baseRisk, `[Wazuh] ${alert.rule?.description}`, ip);
+    }
+});
+webhook.start();
 let cloudClient = null;
 if (cloudUrl && agentKey) {
     log(`[Cloud] Configuration found. Initializing Cloud Client...`);
@@ -552,14 +576,53 @@ async function handleLogLine(line, path) {
 }
 // Offset tracking for incremental reading
 const fileOffsets = new Map();
+// Helper to determine active startup scan count
+const getStartupLines = () => {
+    // Check config first
+    if (fs.existsSync(CONFIG_FILE)) {
+        try {
+            const config = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
+            if (typeof config.STARTUP_READ_LINES === 'number') {
+                return config.STARTUP_READ_LINES;
+            }
+        }
+        catch (e) { }
+    }
+    // Default to 500 lines if not configured (User request: "default can be 500")
+    return 500;
+};
 async function tailAndWatch(path) {
     if (!fs.existsSync(path))
         return;
     try {
         const stats = fs.statSync(path);
-        fileOffsets.set(path, stats.size);
-        // User Request: Don't check old logs, only wait for updates.
-        // log(`[Agent] 🔍 Watching ${path} from offset ${stats.size}`);
+        const fileSize = stats.size;
+        let startOffset = fileSize;
+        const startupLines = getStartupLines();
+        if (startupLines > 0 && fileSize > 0) {
+            // Estimate bytes needed: 500 lines * ~200 bytes/line = 100KB
+            const ESTIMATED_BYTES_PER_LINE = 200;
+            const readSize = Math.min(fileSize, startupLines * ESTIMATED_BYTES_PER_LINE);
+            const readStart = fileSize - readSize;
+            const buffer = Buffer.alloc(readSize);
+            const fd = fs.openSync(path, 'r');
+            fs.readSync(fd, buffer, 0, readSize, readStart);
+            fs.closeSync(fd);
+            const content = buffer.toString('utf-8');
+            // Split by newline and take the last N items
+            const allLines = content.split('\n');
+            const linesToProcess = allLines.slice(-startupLines);
+            if (linesToProcess.length > 0) {
+                log(`[Agent] 🔍 Startup Scan: Checking last ${linesToProcess.length} lines of ${path}...`);
+                for (const line of linesToProcess) {
+                    if (line.trim()) {
+                        await handleLogLine(line, path);
+                    }
+                }
+            }
+        }
+        // Always set offset to END of file to avoid re-reading what we just scanned
+        fileOffsets.set(path, fileSize);
     }
     catch (e) {
         log(`[Error] Failed to tail file ${path}: ${e}`);
