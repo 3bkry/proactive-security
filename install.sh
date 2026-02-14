@@ -249,8 +249,34 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 
     if [ -z "$COMPOSE_CMD" ] || ! command -v docker &>/dev/null; then
         echo -e "   ${RED}✖ Docker or Docker Compose not found.${NC}"
-        echo -e "   Please install Docker and Docker Compose (v2) and try again."
-    else
+        echo -e "   Would you like to install Docker automatically?"
+        read -p "   Install Docker? [y/N] " -n 1 -r < /dev/tty
+        printf "\n"
+
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            echo -e "   ${GREEN}🚀 Installing Docker...${NC}"
+            curl -fsSL https://get.docker.com | sh
+            
+            # Re-check
+            DOCKER_CMD="docker"
+            COMPOSE_CMD=""
+            if command -v docker-compose &>/dev/null; then COMPOSE_CMD="docker-compose";
+            elif docker compose version &>/dev/null; then COMPOSE_CMD="docker compose"; fi
+
+            if [ -n "$COMPOSE_CMD" ]; then
+                echo -e "   ${GREEN}✔ Docker installed successfully.${NC}"
+            else
+                echo -e "   ${RED}✖ Failed to install Docker automatically. Please install manually.${NC}"
+                echo -e "   Skipping Wazuh installation."
+                COMPOSE_CMD="" # Force skip
+            fi
+        else
+            echo -e "   Skipping Docker installation."
+            COMPOSE_CMD=""
+        fi
+    fi
+
+    if [ -n "$COMPOSE_CMD" ]; then
         echo -e "   ${GREEN}🚀 Deploying Wazuh containers...${NC}"
         cp "${INSTALL_DIR}/docker-compose.wazuh.yml" "${INSTALL_DIR}/docker-compose.yml"
         
