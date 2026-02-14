@@ -238,15 +238,24 @@ read -p "   Install Wazuh? [y/N] " -n 1 -r < /dev/tty
 printf "\n"
 
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    if ! command -v docker &>/dev/null || ! command -v docker-compose &>/dev/null; then
+    DOCKER_CMD="docker"
+    COMPOSE_CMD=""
+
+    if command -v docker-compose &>/dev/null; then
+        COMPOSE_CMD="docker-compose"
+    elif docker compose version &>/dev/null; then
+        COMPOSE_CMD="docker compose"
+    fi
+
+    if [ -z "$COMPOSE_CMD" ] || ! command -v docker &>/dev/null; then
         echo -e "   ${RED}✖ Docker or Docker Compose not found.${NC}"
-        echo -e "   Please install Docker and try again."
+        echo -e "   Please install Docker and Docker Compose (v2) and try again."
     else
         echo -e "   ${GREEN}🚀 Deploying Wazuh containers...${NC}"
         cp "${INSTALL_DIR}/docker-compose.wazuh.yml" "${INSTALL_DIR}/docker-compose.yml"
         
         # Start Wazuh in background
-        (cd "${INSTALL_DIR}" && docker-compose up -d)
+        (cd "${INSTALL_DIR}" && $COMPOSE_CMD up -d)
 
         echo -e "   ${GREEN}✔ Wazuh deployed.${NC}"
         echo -e "   Access Dashboard at: ${BLUE}https://<server-ip>:4443${NC}"
