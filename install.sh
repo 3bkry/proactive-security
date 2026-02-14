@@ -249,7 +249,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
         (cd "${INSTALL_DIR}" && docker-compose up -d)
 
         echo -e "   ${GREEN}✔ Wazuh deployed.${NC}"
-        echo -e "   Access Dashboard at: ${BLUE}https://<server-ip>:443${NC}"
+        echo -e "   Access Dashboard at: ${BLUE}https://<server-ip>:4443${NC}"
         echo -e "   Default credentials: ${YELLOW}admin / admin${NC}"
     fi
 else
