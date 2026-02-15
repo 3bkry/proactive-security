@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   generate-indexer-certs:
-    image: wazuh/wazuh-certs-generator:0.0.1
+    image: wazuh/wazuh-certs-generator:0.0.4
     volumes:
       - wazuh-certs:/certs
       - ./wazuh/wazuh_indexer_ssl_certs/config.yml:/config/config.yml
