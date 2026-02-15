@@ -238,8 +238,8 @@ echo ""
 # 8. Wazuh Installation (Optional)
 # ─────────────────────────────────────────────────────────────
 echo -e "${BLUE}🛡️  Wazuh Security Platform${NC}"
-echo -e "   Would you like to install Wazuh (SIEM & XDR) via Docker?"
-echo -e "   ${YELLOW}Note: This requires ~4GB RAM and Docker installed.${NC}"
+echo -e "   Would you like to install Wazuh (SIEM & XDR)?"
+echo -e "   ${YELLOW}Note: This requires ~4GB RAM.${NC}"
 read -p "   Install Wazuh? [y/N] " -n 1 -r < /dev/tty
 printf "\n"
 
