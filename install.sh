@@ -266,6 +266,10 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo "admin:${ADMIN_PASS}" > "${CONFIG_DIR}/wazuh-admin.pass"
         chmod 600 "${CONFIG_DIR}/wazuh-admin.pass"
         echo -e "   Credentials saved to: ${BLUE}${CONFIG_DIR}/wazuh-admin.pass${NC}"
+
+        # Configure Webhook Integration
+        echo -e "   ${GREEN}🔗 Configuring Webhook Integration...${NC}"
+        bash tools/configure_wazuh_integration.sh
     else
         echo -e "   ${YELLOW}⚠ Installation completed but password could not be parsed.${NC}"
         echo -e "   Please check the output above or 'wazuh-install.log' for credentials."
