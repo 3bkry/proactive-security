@@ -47,6 +47,9 @@ echo ""
 # Ensure we are not inside the directory we might delete
 cd /
 
+# Stop existing service if running
+systemctl stop sentinel-agent 2>/dev/null || true
+
 # ─────────────────────────────────────────────────────────────
 # 1. Dependencies
 # ─────────────────────────────────────────────────────────────
