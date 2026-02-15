@@ -244,91 +244,34 @@ read -p "   Install Wazuh? [y/N] " -n 1 -r < /dev/tty
 printf "\n"
 
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    DOCKER_CMD="docker"
-    COMPOSE_CMD=""
+    echo -e "   ${GREEN}🚀 Starting native Wazuh installation...${NC}"
+    
+    # Download official installer
+    curl -sO https://packages.wazuh.com/4.14/wazuh-install.sh
+    
+    # Run installation and capture output to find password
+    # We use 'tee' to show progress to user while capturing output
+    sudo bash ./wazuh-install.sh -a | tee wazuh-install.log
 
-    # Ensure we use Docker Compose V2 (Plugin) to avoid Python/urllib3 crashes in v1
-    if ! docker compose version &>/dev/null; then
-        echo -e "   ℹ 'docker compose' (v2) not found. Attempting to install plugin..."
-        apt-get update -qq >/dev/null 2>&1
-        apt-get install -y docker-compose-plugin >/dev/null 2>&1
-    fi
+    # Extract password
+    ADMIN_PASS=$(grep "Password:" wazuh-install.log | tail -1 | awk '{print $2}')
 
-    if docker compose version &>/dev/null; then
-        COMPOSE_CMD="docker compose"
-    elif command -v docker-compose &>/dev/null; then
-        COMPOSE_CMD="docker-compose"
-        echo -e "   ${YELLOW}⚠ Warning: Using legacy 'docker-compose'. If it crashes, please install 'docker-compose-plugin'.${NC}"
-    fi
-
-    if [ -z "$COMPOSE_CMD" ] || ! command -v docker &>/dev/null; then
-         # ... (existing auto-install logic remains, but we want to focus on the fix above)
-         # For brevity in this replace block, I will assume the auto-install block is fine, 
-         # but I need to include enough context or just replace the detection/install part.
-         # The auto-install block is large. I will keep it simple and just patch the detection.
-         
-         # actually, the previous replace block context might be tricky. 
-         # Let's recreate the auto-install block to be safe or just use the existing one but updated.
-         
-        echo -e "   ${RED}✖ Docker or Docker Compose not found.${NC}"
-        echo -e "   Would you like to install Docker automatically?"
-        read -p "   Install Docker? [y/N] " -n 1 -r < /dev/tty
-        printf "\n"
-
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            echo -e "   ${GREEN}🚀 Installing Docker...${NC}"
-            curl -fsSL https://get.docker.com | sh
-            
-            # Post-install check
-            if docker compose version &>/dev/null; then COMPOSE_CMD="docker compose"; 
-            elif command -v docker-compose &>/dev/null; then COMPOSE_CMD="docker-compose"; fi
-
-            if [ -n "$COMPOSE_CMD" ]; then
-                echo -e "   ${GREEN}✔ Docker installed successfully.${NC}"
-            else
-                echo -e "   ${RED}✖ Failed to install Docker automatically. Please install manually.${NC}"
-                echo -e "   Skipping Wazuh installation."
-                COMPOSE_CMD=""
-            fi
-        else
-            echo -e "   Skipping Docker installation."
-            COMPOSE_CMD=""
-        fi
-    fi
-
-    if [ -n "$COMPOSE_CMD" ]; then
-        echo -e "   ${GREEN}🚀 Deploying Wazuh containers using: ${BLUE}${COMPOSE_CMD}${NC}..."
-        cp "${INSTALL_DIR}/docker-compose.wazuh.yml" "${INSTALL_DIR}/docker-compose.yml"
+    if [ -n "$ADMIN_PASS" ]; then
+        echo -e "   ${GREEN}✔ Wazuh installed successfully!${NC}"
+        echo -e "   Access Dashboard at: ${BLUE}https://<server-ip>${NC}"
+        echo -e "   User: ${YELLOW}admin${NC}"
+        echo -e "   Password: ${YELLOW}${ADMIN_PASS}${NC}"
         
-        # Start Wazuh in background with Error Checking
-        if (cd "${INSTALL_DIR}" && $COMPOSE_CMD up -d); then
-            echo -e "   ${GREEN}✔ Wazuh deployed.${NC}"
-            echo -e "   Access Dashboard at: ${BLUE}https://<server-ip>:4443${NC}"
-            echo -e "   Default credentials: ${YELLOW}admin / admin${NC}"
-
-            # ─────────────────────────────────────────────────────────────
-            # 8b. Install Wazuh Agent
-            # ─────────────────────────────────────────────────────────────
-            echo -e ""
-            echo -e "${GREEN}🕵️  Installing Wazuh Agent on host...${NC}"
-            
-            curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import && chmod 644 /usr/share/keyrings/wazuh.gpg
-            echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | tee /etc/apt/sources.list.d/wazuh.list > /dev/null
-            
-            apt-get update -qq
-            WAZUH_MANAGER="127.0.0.1" apt-get install -y wazuh-agent > /dev/null
-            
-            systemctl daemon-reload
-            systemctl enable wazuh-agent
-            systemctl start wazuh-agent
-            
-            echo -e "   ${GREEN}✔ Wazuh Agent installed & connected to Manager.${NC}"
-
-        else
-            echo -e "   ${RED}✖ Failed to start Wazuh containers.${NC}"
-            echo -e "   Please check the error logs above."
-        fi
+        # Save password for reference
+        echo "admin:${ADMIN_PASS}" > "${CONFIG_DIR}/wazuh-admin.pass"
+        chmod 600 "${CONFIG_DIR}/wazuh-admin.pass"
+        echo -e "   Credentials saved to: ${BLUE}${CONFIG_DIR}/wazuh-admin.pass${NC}"
+    else
+        echo -e "   ${YELLOW}⚠ Installation completed but password could not be parsed.${NC}"
+        echo -e "   Please check the output above or 'wazuh-install.log' for credentials."
     fi
+
+    rm -f wazuh-install.sh
 else
     echo -e "   Skipping Wazuh installation."
 fi
