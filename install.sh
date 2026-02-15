@@ -247,13 +247,29 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     DOCKER_CMD="docker"
     COMPOSE_CMD=""
 
+    # Ensure we use Docker Compose V2 (Plugin) to avoid Python/urllib3 crashes in v1
+    if ! docker compose version &>/dev/null; then
+        echo -e "   ℹ 'docker compose' (v2) not found. Attempting to install plugin..."
+        apt-get update -qq >/dev/null 2>&1
+        apt-get install -y docker-compose-plugin >/dev/null 2>&1
+    fi
+
     if docker compose version &>/dev/null; then
         COMPOSE_CMD="docker compose"
     elif command -v docker-compose &>/dev/null; then
         COMPOSE_CMD="docker-compose"
+        echo -e "   ${YELLOW}⚠ Warning: Using legacy 'docker-compose'. If it crashes, please install 'docker-compose-plugin'.${NC}"
     fi
 
     if [ -z "$COMPOSE_CMD" ] || ! command -v docker &>/dev/null; then
+         # ... (existing auto-install logic remains, but we want to focus on the fix above)
+         # For brevity in this replace block, I will assume the auto-install block is fine, 
+         # but I need to include enough context or just replace the detection/install part.
+         # The auto-install block is large. I will keep it simple and just patch the detection.
+         
+         # actually, the previous replace block context might be tricky. 
+         # Let's recreate the auto-install block to be safe or just use the existing one but updated.
+         
         echo -e "   ${RED}✖ Docker or Docker Compose not found.${NC}"
         echo -e "   Would you like to install Docker automatically?"
         read -p "   Install Docker? [y/N] " -n 1 -r < /dev/tty
@@ -263,18 +279,16 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
             echo -e "   ${GREEN}🚀 Installing Docker...${NC}"
             curl -fsSL https://get.docker.com | sh
             
-            # Re-check
-            DOCKER_CMD="docker"
-            COMPOSE_CMD=""
-            if command -v docker-compose &>/dev/null; then COMPOSE_CMD="docker-compose";
-            elif docker compose version &>/dev/null; then COMPOSE_CMD="docker compose"; fi
+            # Post-install check
+            if docker compose version &>/dev/null; then COMPOSE_CMD="docker compose"; 
+            elif command -v docker-compose &>/dev/null; then COMPOSE_CMD="docker-compose"; fi
 
             if [ -n "$COMPOSE_CMD" ]; then
                 echo -e "   ${GREEN}✔ Docker installed successfully.${NC}"
             else
                 echo -e "   ${RED}✖ Failed to install Docker automatically. Please install manually.${NC}"
                 echo -e "   Skipping Wazuh installation."
-                COMPOSE_CMD="" # Force skip
+                COMPOSE_CMD=""
             fi
         else
             echo -e "   Skipping Docker installation."
@@ -283,35 +297,37 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     fi
 
     if [ -n "$COMPOSE_CMD" ]; then
-        echo -e "   ${GREEN}🚀 Deploying Wazuh containers...${NC}"
+        echo -e "   ${GREEN}🚀 Deploying Wazuh containers using: ${BLUE}${COMPOSE_CMD}${NC}..."
         cp "${INSTALL_DIR}/docker-compose.wazuh.yml" "${INSTALL_DIR}/docker-compose.yml"
         
-        # Start Wazuh in background
-        (cd "${INSTALL_DIR}" && $COMPOSE_CMD up -d)
+        # Start Wazuh in background with Error Checking
+        if (cd "${INSTALL_DIR}" && $COMPOSE_CMD up -d); then
+            echo -e "   ${GREEN}✔ Wazuh deployed.${NC}"
+            echo -e "   Access Dashboard at: ${BLUE}https://<server-ip>:4443${NC}"
+            echo -e "   Default credentials: ${YELLOW}admin / admin${NC}"
 
-        echo -e "   ${GREEN}✔ Wazuh deployed.${NC}"
-        echo -e "   Access Dashboard at: ${BLUE}https://<server-ip>:4443${NC}"
-        echo -e "   Default credentials: ${YELLOW}admin / admin${NC}"
+            # ─────────────────────────────────────────────────────────────
+            # 8b. Install Wazuh Agent
+            # ─────────────────────────────────────────────────────────────
+            echo -e ""
+            echo -e "${GREEN}🕵️  Installing Wazuh Agent on host...${NC}"
+            
+            curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import && chmod 644 /usr/share/keyrings/wazuh.gpg
+            echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | tee /etc/apt/sources.list.d/wazuh.list > /dev/null
+            
+            apt-get update -qq
+            WAZUH_MANAGER="127.0.0.1" apt-get install -y wazuh-agent > /dev/null
+            
+            systemctl daemon-reload
+            systemctl enable wazuh-agent
+            systemctl start wazuh-agent
+            
+            echo -e "   ${GREEN}✔ Wazuh Agent installed & connected to Manager.${NC}"
 
-        # ─────────────────────────────────────────────────────────────
-        # 8b. Install Wazuh Agent on Host (to monitor this server)
-        # ─────────────────────────────────────────────────────────────
-        echo -e ""
-        echo -e "${GREEN}🕵️  Installing Wazuh Agent on host...${NC}"
-        
-        # Add GPG key and repo
-        curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import && chmod 644 /usr/share/keyrings/wazuh.gpg
-        echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | tee /etc/apt/sources.list.d/wazuh.list > /dev/null
-        
-        apt-get update -qq
-        WAZUH_MANAGER="127.0.0.1" apt-get install -y wazuh-agent > /dev/null
-        
-        # Enable and start
-        systemctl daemon-reload
-        systemctl enable wazuh-agent
-        systemctl start wazuh-agent
-        
-        echo -e "   ${GREEN}✔ Wazuh Agent installed & connected to Manager.${NC}"
+        else
+            echo -e "   ${RED}✖ Failed to start Wazuh containers.${NC}"
+            echo -e "   Please check the error logs above."
+        fi
     fi
 else
     echo -e "   Skipping Wazuh installation."
