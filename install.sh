@@ -237,55 +237,60 @@ echo ""
 # ─────────────────────────────────────────────────────────────
 # 8. Wazuh Installation (Optional)
 # ─────────────────────────────────────────────────────────────
-echo -e "${BLUE}🛡️  Wazuh Security Platform${NC}"
-echo -e "   Would you like to install Wazuh (SIEM & XDR)?"
-echo -e "   ${YELLOW}Note: This requires ~4GB RAM.${NC}"
-read -p "   Install Wazuh? [y/N] " -n 1 -r < /dev/tty
+echo ""
+echo "🛡️  Wazuh Security Platform"
+echo "   Would you like to install Wazuh (SIEM & XDR)?"
+echo "   ${YELLOW}Note: This requires ~4GB RAM.${NC}"
+printf "   Install Wazuh? [y/N] "
+read REPLY
 printf "\n"
 
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo -e "   ${GREEN}🚀 Starting native Wazuh installation...${NC}"
-    
-    # Download official installer
-    curl -sO https://packages.wazuh.com/4.14/wazuh-install.sh
-    
-    # Run installation and capture output to find password
-    # We use 'tee' to show progress to user while capturing output
-    sudo bash ./wazuh-install.sh -a | tee wazuh-install.log
-
-    # Extract password
-    ADMIN_PASS=$(grep "Password:" wazuh-install.log | tail -1 | awk '{print $2}')
-
-    if [ -n "$ADMIN_PASS" ]; then
-        echo -e "   ${GREEN}✔ Wazuh installed successfully!${NC}"
-        echo -e "   Access Dashboard at: ${BLUE}https://<server-ip>${NC}"
-        echo -e "   User: ${YELLOW}admin${NC}"
-        echo -e "   Password: ${YELLOW}${ADMIN_PASS}${NC}"
+case "$REPLY" in
+    [yY]*)
+        echo "   ${GREEN}🚀 Starting native Wazuh installation...${NC}"
         
-        # Save password for reference
-        echo "admin:${ADMIN_PASS}" > "${CONFIG_DIR}/wazuh-admin.pass"
-        chmod 600 "${CONFIG_DIR}/wazuh-admin.pass"
-        echo -e "   Credentials saved to: ${BLUE}${CONFIG_DIR}/wazuh-admin.pass${NC}"
+        # Download official installer
+        curl -sO https://packages.wazuh.com/4.14/wazuh-install.sh
+        
+        # Run installation and capture output to find password
+        # We use 'tee' to show progress to user while capturing output
+        sudo bash ./wazuh-install.sh -a | tee wazuh-install.log
 
-        # Configure Webhook Integration
-        echo -e "   ${GREEN}🔗 Configuring Webhook Integration...${NC}"
-        bash tools/configure_wazuh_integration.sh
-    else
-        echo -e "   ${YELLOW}⚠ Installation completed but password could not be parsed.${NC}"
-        echo -e "   Please check the output above or 'wazuh-install.log' for credentials."
-    fi
+        # Extract password
+        ADMIN_PASS=$(grep "Password:" wazuh-install.log | tail -1 | awk '{print $2}')
 
-    rm -f wazuh-install.sh
-else
-    echo -e "   Skipping Wazuh installation."
-fi
+        if [ -n "$ADMIN_PASS" ]; then
+            echo "   ${GREEN}✔ Wazuh installed successfully!${NC}"
+            echo "   Access Dashboard at: ${BLUE}https://<server-ip>${NC}"
+            echo "   User: ${YELLOW}admin${NC}"
+            echo "   Password: ${YELLOW}${ADMIN_PASS}${NC}"
+            
+            # Save password for reference
+            echo "admin:${ADMIN_PASS}" > "${CONFIG_DIR}/wazuh-admin.pass"
+            chmod 600 "${CONFIG_DIR}/wazuh-admin.pass"
+            echo "   Credentials saved to: ${BLUE}${CONFIG_DIR}/wazuh-admin.pass${NC}"
+
+            # Configure Webhook Integration
+            echo "   ${GREEN}🔗 Configuring Webhook Integration...${NC}"
+            bash tools/configure_wazuh_integration.sh
+        else
+            echo "   ${YELLOW}⚠ Installation completed but password could not be parsed.${NC}"
+            echo "   Please check the output above or 'wazuh-install.log' for credentials."
+        fi
+
+        rm -f wazuh-install.sh
+        ;;
+    *)
+        echo "   Skipping Wazuh installation."
+        ;;
+esac
 
 echo ""
 
 # ─────────────────────────────────────────────────────────────
 # 9. Optional: systemd service
 # ─────────────────────────────────────────────────────────────
-echo -e "${GREEN}⚙️  Installing systemd service...${NC}"
+echo "${GREEN}⚙️  Installing systemd service...${NC}"
 
 AGENT_ENTRY="${INSTALL_DIR}/apps/agent/dist/index.js"
 
@@ -321,25 +326,29 @@ WantedBy=multi-user.target
 SERVICE
 
 systemctl daemon-reload
-echo -e "   ${GREEN}✔${NC} Service installed: ${BLUE}sentinel-agent.service${NC}"
-echo -e "   Enable on boot with: ${BLUE}sudo systemctl enable sentinel-agent${NC}"
+echo "   ${GREEN}✔${NC} Service installed: ${BLUE}sentinel-agent.service${NC}"
+echo "   Enable on boot with: ${BLUE}sudo systemctl enable sentinel-agent${NC}"
 
 echo ""
 
 # ─────────────────────────────────────────────────────────────
 # 9. Add all existing human users to sentinel group (optional)
 # ─────────────────────────────────────────────────────────────
-echo -e "${GREEN}👥 Adding existing users to '${SENTINEL_GROUP}' group...${NC}"
+echo "${GREEN}👥 Adding existing users to '${SENTINEL_GROUP}' group...${NC}"
 
 # Add all human users (UID ≥ 1000, with a real shell) to the group
 while IFS=: read -r username _ uid _ _ _ shell; do
-    if [ "$uid" -ge 1000 ] && [[ "$shell" == */bash || "$shell" == */zsh || "$shell" == */sh || "$shell" == */fish ]]; then
-        if ! id -nG "$username" 2>/dev/null | grep -qw "$SENTINEL_GROUP"; then
-            usermod -aG "$SENTINEL_GROUP" "$username"
-            echo -e "   Added ${YELLOW}${username}${NC}"
-        else
-            echo -e "   ${GREEN}✔${NC} ${username} (already member)"
-        fi
+    if [ "$uid" -ge 1000 ]; then
+        case "$shell" in
+            */bash|*/zsh|*/sh|*/fish)
+                if ! id -nG "$username" 2>/dev/null | grep -qw "$SENTINEL_GROUP"; then
+                    usermod -aG "$SENTINEL_GROUP" "$username"
+                    echo "   Added ${YELLOW}${username}${NC}"
+                else
+                    echo "   ${GREEN}✔${NC} ${username} (already member)"
+                fi
+                ;;
+        esac
     fi
 done < /etc/passwd
 
