@@ -1,6 +1,17 @@
 version: '3.8'
 
 services:
+  generate-indexer-certs:
+    image: wazuh/wazuh-certs-tool:4.7.2-1
+    configuration:
+      - ./wazuh/wazuh_indexer_ssl_certs/config.yml:/config/config.yml
+      - ./wazuh/wazuh_indexer_ssl_certs/certs.yml:/config/certs.yml
+      - wazuh-certs:/certs
+    volumes:
+      - wazuh-certs:/certs
+      - ./wazuh/wazuh_indexer_ssl_certs/config.yml:/config/config.yml
+      - ./wazuh/wazuh_indexer_ssl_certs/certs.yml:/config/certs.yml
+
   wazuh.indexer:
     image: wazuh/wazuh-indexer:4.7.2
     container_name: wazuh.indexer
@@ -19,6 +30,10 @@ services:
         hard: 65536
     volumes:
       - wazuh-indexer-data:/var/lib/wazuh-indexer
+      - wazuh-certs:/usr/share/wazuh-indexer/certs
+      - ./wazuh/wazuh_indexer_ssl_certs/config.yml:/usr/share/wazuh-indexer/opensearch-security/securityconfig/config.yml
+    depends_on:
+      - generate-indexer-certs
     networks:
       - wazuh-network
 
@@ -41,6 +56,7 @@ services:
       - wazuh-manager-data:/var/ossec/data
       - ./wazuh/ossec.conf:/var/ossec/etc/ossec.conf
       - wazuh-manager-logs:/var/ossec/logs
+      - wazuh-certs:/var/ossec/etc/certs
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -61,6 +77,7 @@ services:
       - wazuh.manager
     volumes:
       - wazuh-dashboard-config:/usr/share/wazuh-dashboard/data
+      - wazuh-certs:/usr/share/wazuh-dashboard/certs
     networks:
       - wazuh-network
 
@@ -70,6 +87,7 @@ volumes:
   wazuh-manager-etc:
   wazuh-manager-logs:
   wazuh-dashboard-config:
+  wazuh-certs:
 
 networks:
   wazuh-network:
