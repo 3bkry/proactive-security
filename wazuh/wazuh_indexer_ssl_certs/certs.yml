@@ -1,13 +1,13 @@
 nodes:
   indexer:
-    - name: wazuh.indexer
+    - name: indexer
       ip: 
         - 127.0.0.1
   server:
-    - name: wazuh.manager
+    - name: wazuh-manager
       ip: 
         - 127.0.0.1
   dashboard:
-    - name: wazuh.dashboard
+    - name: dashboard
       ip: 
         - 127.0.0.1
