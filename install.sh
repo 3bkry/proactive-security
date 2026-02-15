@@ -45,7 +45,7 @@ echo -e "${GREEN}▶ Installing as root. CLI will be available to ALL users.${NC
 echo ""
 
 # Ensure we are not inside the directory we might delete
-cd /
+cd / || exit 1
 
 # Stop existing service if running
 systemctl stop sentinel-agent 2>/dev/null || true
