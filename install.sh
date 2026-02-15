@@ -247,10 +247,10 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     DOCKER_CMD="docker"
     COMPOSE_CMD=""
 
-    if command -v docker-compose &>/dev/null; then
-        COMPOSE_CMD="docker-compose"
-    elif docker compose version &>/dev/null; then
+    if docker compose version &>/dev/null; then
         COMPOSE_CMD="docker compose"
+    elif command -v docker-compose &>/dev/null; then
+        COMPOSE_CMD="docker-compose"
     fi
 
     if [ -z "$COMPOSE_CMD" ] || ! command -v docker &>/dev/null; then
