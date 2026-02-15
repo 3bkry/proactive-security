@@ -35,7 +35,10 @@ echo -e "${GREEN}🧹 Cleaning up artifacts...${NC}"
 # Double check volumes are gone
 docker volume prune -f
 
-echo -e "${GREEN}🚀 Starting fresh...${NC}"
+echo -e "${GREEN}� Refreshing configuration...${NC}"
+cp docker-compose.wazuh.yml docker-compose.yml
+
+echo -e "${GREEN}�🚀 Starting fresh...${NC}"
 $COMPOSE_CMD up -d
 
 echo -e "${GREEN}✔ Done. Please wait 2-3 minutes for initialization.${NC}"
