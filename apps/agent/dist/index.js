@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import * as fs from 'fs';
 import { LogWatcher } from "./watcher.js";
 import { AIManager } from "./ai.js";
-import { log, getSystemStats, CONFIG_FILE } from "@sentinel/core";
+import { log, getSystemStats, CONFIG_FILE, STATE_FILE } from '@sentinel/core';
 import { BanManager } from "./ban.js";
 import { TelegramNotifier } from "./telegram.js";
 import { HeartbeatService } from "./heartbeat.js";
@@ -370,6 +370,33 @@ const isNoisyLogLine = (line) => {
     ];
     return noisyPatterns.some(pattern => line.includes(pattern));
 };
+// Helper to extract REAL IP from log line (handles Cloudflare/Proxies)
+const extractRealIP = (line) => {
+    // 1. Look for Cloudflare / Proxy patterns first: "CF-Connecting-IP: 1.2.3.4" or "X-Forwarded-For: 1.2.3.4"
+    const cfPattern = /(?:CF-Connecting-IP|X-Forwarded-For|Real-IP):\s*["']?((?:\d{1,3}\.){3}\d{1,3})\b/i;
+    const cfMatch = line.match(cfPattern);
+    if (cfMatch)
+        return cfMatch[1];
+    // 2. Generic IP extraction but prioritizes the FIRST IP that isn't a Cloudflare internal IP if possible
+    // Cloudflare IPs: https://www.cloudflare.com/ips/
+    const cfRanges = [
+        "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "141.101.64.0/18",
+        "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22", "198.41.128.0/17",
+        "162.158.0.0/15", "104.16.0.0/13", "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22"
+    ];
+    const allIPs = line.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g) || [];
+    if (allIPs.length === 0)
+        return undefined;
+    // If only one IP, return it
+    if (allIPs.length === 1)
+        return allIPs[0];
+    // If multiple IPs (often Nginx logs: [Remote_Addr] ... "X-Forwarded-For"), 
+    // prioritize the one that doesn't look like a CF proxy (starts with 172.6x or 162.158 etc)
+    const filtered = allIPs.filter(ip => {
+        return !ip.startsWith("172.") && !ip.startsWith("104.") && !ip.startsWith("162.158");
+    });
+    return filtered.length > 0 ? filtered[0] : allIPs[0];
+};
 async function handleLogLine(line, path) {
     try {
         const settings = getSettings(path);
@@ -382,12 +409,9 @@ async function handleLogLine(line, path) {
         if (isNoisyLogLine(line)) {
             return;
         }
-        // Phase 46: IP Requirement (User Request)
-        // "any log that doens't have ip is useless"
-        const ipMatch = line.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
-        const ip = ipMatch ? ipMatch[0] : undefined;
+        // Improved IP extraction
+        const ip = extractRealIP(line);
         if (!ip) {
-            // log(`[Filter] Dropped log line without IP: ${lastLine.substring(0, 50)}...`); // Silent drop as requested
             return;
         }
         // 1. Sampling Check
@@ -413,9 +437,6 @@ async function handleLogLine(line, path) {
                 const risks = { "LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3 };
                 return (risks[curr.risk] || 0) > (risks[prev.risk] || 0) ? curr : prev;
             }, owaspMatches[0]);
-            // Extract IP if possible
-            const ipMatch = line.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
-            const ip = ipMatch ? ipMatch[0] : undefined;
             result = {
                 risk: prioritizedMatch.risk,
                 summary: `[OWASP ${prioritizedMatch.category}] ${prioritizedMatch.summary}`,
@@ -432,8 +453,6 @@ async function handleLogLine(line, path) {
         else if (path.endsWith("auth.log") || path.endsWith("secure")) {
             const authFailPattern = /failed|failure|invalid user|authentication error|refused|disconnect/i;
             if (authFailPattern.test(line)) {
-                const ipMatch = line.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/);
-                const ip = ipMatch ? ipMatch[0] : undefined;
                 result = {
                     risk: "HIGH",
                     summary: "Detected repeated authentication failure (Local Rule)",
@@ -480,38 +499,43 @@ async function handleLogLine(line, path) {
                     }
                 });
                 if (result.risk === "CRITICAL" || result.risk === "HIGH" || result.risk === "MEDIUM") {
-                    telegram.sendAlert(result.risk, `${result.summary} (Source: ${path})`, result.ip);
+                    telegram.sendAlert(result.risk, `${result.summary} (Source: ${path})`, result.ip || ip);
                 }
                 // Execute Defense
-                if (result.ip && (result.risk === "CRITICAL" || result.risk === "HIGH" || result.risk === "MEDIUM")) {
+                const attackerIP = result.ip || ip;
+                if (attackerIP && (result.risk === "CRITICAL" || result.risk === "HIGH" || result.risk === "MEDIUM")) {
                     // --- GLOBAL SAFETY CHECK ---
                     if (isSafeMode) {
-                        log(`[Safety] 🛡️ SAFE MODE: Suppressed defense against ${result.ip} (Risk: ${result.risk})`);
+                        log(`[Safety] 🛡️ SAFE MODE: Suppressed defense against ${attackerIP} (Risk: ${result.risk})`);
                         result.action = "Monitor Only (Safe Mode)";
                         return; // EXIT DEFENSE BLOCK
                     }
                     if (isWarmingUp) {
-                        log(`[Safety] ⏳ WARMUP: Suppressed defense against ${result.ip} (Risk: ${result.risk})`);
+                        log(`[Safety] ⏳ WARMUP: Suppressed defense against ${attackerIP} (Risk: ${result.risk})`);
                         result.action = "Monitor Only (Warmup)";
                         return; // EXIT DEFENSE BLOCK
                     }
                     // ---------------------------
                     if (result.immediate) {
                         const isCritical = result.risk === "CRITICAL";
-                        log(`[Active Defense] 🔥 ${isCritical ? 'CRITICAL' : 'IMMEDIATE'} BAN TRIGGERED for IP ${result.ip}`);
-                        await banManager.banIP(result.ip, result.summary);
-                        telegram.notifyBan(result.ip, result.summary);
+                        log(`[Active Defense] 🔥 ${isCritical ? 'CRITICAL' : 'IMMEDIATE'} BAN TRIGGERED for IP ${attackerIP}`);
+                        const wasBanned = await banManager.banIP(attackerIP, result.summary);
+                        if (wasBanned) {
+                            telegram.notifyBan(attackerIP, result.summary);
+                        }
                         if (cloudClient) {
-                            cloudClient.sendAlert("IP_BANNED", `IP ${result.ip} banned ${isCritical ? 'permanently (CRITICAL)' : 'immediately'} (Shield Mode).`, { ip: result.ip, reason: result.summary, risk: result.risk });
+                            cloudClient.sendAlert("IP_BANNED", `IP ${attackerIP} banned ${isCritical ? 'permanently (CRITICAL)' : 'immediately'} (Shield Mode).`, { ip: attackerIP, reason: result.summary, risk: result.risk });
                         }
                     }
                     else {
-                        const strikes = banManager.addStrike(result.ip);
+                        const strikes = banManager.addStrike(attackerIP);
                         if (strikes >= banManager.MAX_STRIKES) {
-                            await banManager.banIP(result.ip);
-                            telegram.notifyBan(result.ip, "has exceeded strike limit.");
+                            const wasBanned = await banManager.banIP(attackerIP);
+                            if (wasBanned) {
+                                telegram.notifyBan(attackerIP, "has exceeded strike limit.");
+                            }
                             if (cloudClient) {
-                                cloudClient.sendAlert("IP_BANNED", `IP ${result.ip} banned after exceeding strike limit.`, { ip: result.ip, reason: "Excessive suspicious activity" });
+                                cloudClient.sendAlert("IP_BANNED", `IP ${attackerIP} banned after exceeding strike limit.`, { ip: attackerIP, reason: "Excessive suspicious activity" });
                             }
                         }
                     }
@@ -552,14 +576,84 @@ async function handleLogLine(line, path) {
 }
 // Offset tracking for incremental reading
 const fileOffsets = new Map();
+const saveState = () => {
+    try {
+        let state = {};
+        if (fs.existsSync(STATE_FILE)) {
+            try {
+                state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+            }
+            catch (e) { }
+        }
+        state.fileOffsets = Object.fromEntries(fileOffsets);
+        fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+    }
+    catch (e) { }
+};
+const loadState = () => {
+    if (fs.existsSync(STATE_FILE)) {
+        try {
+            const state = JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
+            if (state.fileOffsets) {
+                for (const [path, offset] of Object.entries(state.fileOffsets)) {
+                    fileOffsets.set(path, offset);
+                }
+                log(`[Agent] Loaded ${fileOffsets.size} log offsets from state.`);
+            }
+        }
+        catch (e) { }
+    }
+};
+loadState();
+// Helper to determine active startup scan count
+const getStartupLines = () => {
+    if (fs.existsSync(CONFIG_FILE)) {
+        try {
+            const config = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
+            if (typeof config.STARTUP_READ_LINES === 'number') {
+                return config.STARTUP_READ_LINES;
+            }
+        }
+        catch (e) { }
+    }
+    return 500;
+};
 async function tailAndWatch(path) {
     if (!fs.existsSync(path))
         return;
     try {
         const stats = fs.statSync(path);
-        fileOffsets.set(path, stats.size);
-        // User Request: Don't check old logs, only wait for updates.
-        // log(`[Agent] 🔍 Watching ${path} from offset ${stats.size}`);
+        const fileSize = stats.size;
+        const existingOffset = fileOffsets.get(path);
+        if (existingOffset !== undefined) {
+            // Resume from known offset
+            fileOffsets.set(path, fileSize);
+            return;
+        }
+        // If no existing offset, perform initial startup scan
+        const startupLines = getStartupLines();
+        if (startupLines > 0 && fileSize > 0) {
+            const ESTIMATED_BYTES_PER_LINE = 200;
+            const readSize = Math.min(fileSize, startupLines * ESTIMATED_BYTES_PER_LINE);
+            const readStart = fileSize - readSize;
+            const buffer = Buffer.alloc(readSize);
+            const fd = fs.openSync(path, 'r');
+            fs.readSync(fd, buffer, 0, readSize, readStart);
+            fs.closeSync(fd);
+            const content = buffer.toString('utf-8');
+            const allLines = content.split('\n');
+            const linesToProcess = allLines.slice(-startupLines);
+            if (linesToProcess.length > 0) {
+                log(`[Agent] 🔍 Startup Scan: Checking last ${linesToProcess.length} lines of ${path}...`);
+                for (const line of linesToProcess) {
+                    if (line.trim()) {
+                        await handleLogLine(line, path);
+                    }
+                }
+            }
+        }
+        fileOffsets.set(path, fileSize);
+        saveState();
     }
     catch (e) {
         log(`[Error] Failed to tail file ${path}: ${e}`);
@@ -586,6 +680,7 @@ watcher.on("file_changed", async (path) => {
         fs.readSync(fd, buffer, 0, newBytesSize, oldOffset);
         fs.closeSync(fd);
         fileOffsets.set(path, stats.size);
+        saveState();
         const content = buffer.toString('utf-8');
         const lines = content.split('\n');
         for (const line of lines) {

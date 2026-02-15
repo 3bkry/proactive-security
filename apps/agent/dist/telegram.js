@@ -1,5 +1,5 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { log, CONFIG_FILE } from '@sentinel/core';
+import { log, CONFIG_FILE, STATE_FILE } from '@sentinel/core';
 import fs from 'fs';
 export class TelegramNotifier {
     bot = null;
@@ -11,16 +11,51 @@ export class TelegramNotifier {
     constructor(banManager) {
         if (banManager)
             this.banManager = banManager;
+        this.loadState();
         this.initialize();
         // Cleanup old alerts every 10 minutes
         setInterval(() => {
             const now = Date.now();
+            let changed = false;
             for (const [key, timestamp] of this.sentAlerts.entries()) {
                 if (now - timestamp > 10 * 60 * 1000) {
                     this.sentAlerts.delete(key);
+                    changed = true;
                 }
             }
+            if (changed)
+                this.saveState();
         }, 10 * 60 * 1000);
+    }
+    loadState() {
+        if (fs.existsSync(STATE_FILE)) {
+            try {
+                const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+                if (state.sentAlerts) {
+                    this.sentAlerts = new Map(Object.entries(state.sentAlerts));
+                    log(`[Telegram] Loaded ${this.sentAlerts.size} alerts from state.`);
+                }
+            }
+            catch (e) {
+                log(`[Telegram] Failed to load state: ${e}`);
+            }
+        }
+    }
+    saveState() {
+        try {
+            let state = {};
+            if (fs.existsSync(STATE_FILE)) {
+                try {
+                    state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+                }
+                catch (e) { }
+            }
+            state.sentAlerts = Object.fromEntries(this.sentAlerts);
+            fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+        }
+        catch (e) {
+            log(`[Telegram] Failed to save state: ${e}`);
+        }
     }
     initialize() {
         try {
@@ -167,6 +202,7 @@ export class TelegramNotifier {
             }
         }
         this.sentAlerts.set(checkString, now);
+        this.saveState();
         // ----------------------------------------------------
         const icon = risk === "HIGH" ? "🚨" : (risk === "MEDIUM" ? "⚠️" : "ℹ️");
         let message = `${icon} *SENTINEL AI ALERT*\n\n*Risk:* ${risk}\n*Summary:* ${summary}`;
@@ -195,6 +231,15 @@ export class TelegramNotifier {
     async notifyBan(ip, reason) {
         if (!this.bot || !this.chatId)
             return;
+        // Deduplicate ban notifications too
+        const now = Date.now();
+        const checkString = `BAN:${ip}`;
+        const lastSent = this.sentAlerts.get(checkString) || 0;
+        if (now - lastSent < 10 * 60 * 1000) { // 10 min cooldown for ban messages
+            return;
+        }
+        this.sentAlerts.set(checkString, now);
+        this.saveState();
         const opts = {
             parse_mode: 'Markdown',
             reply_markup: {

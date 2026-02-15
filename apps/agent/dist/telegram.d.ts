@@ -8,6 +8,8 @@ export declare class TelegramNotifier {
     private isRateLimited;
     private rateLimitResetTime;
     constructor(banManager?: BanManager);
+    private loadState;
+    private saveState;
     private initialize;
     onCommand(command: string, handler: (msg: TelegramBot.Message) => void): void;
     private getSimilarity;

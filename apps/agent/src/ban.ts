@@ -60,7 +60,7 @@ export class BanManager {
     }
 
     async banIP(ip: string, reason: string = "Automated Defense"): Promise<boolean> {
-        if (this.bannedIPs.has(ip)) return true;
+        if (this.bannedIPs.has(ip)) return false; // Already banned, skip notification
 
         // --- SAFETY CHECKS ---
         // 1. Hardcoded Loopback Safety

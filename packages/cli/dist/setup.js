@@ -166,6 +166,18 @@ async function runSetup() {
             }
         },
         {
+            type: 'input', // Using input because 'number' type can be flaky in some terminals
+            name: 'startupScanLines',
+            message: 'Startup Scan: How many existing log lines to check? (Default: 500, 0=None):',
+            default: config.STARTUP_READ_LINES !== undefined ? config.STARTUP_READ_LINES : 500,
+            validate: (input) => {
+                const num = parseInt(input);
+                if (isNaN(num) || num < 0 || num > 10000)
+                    return 'Please enter a number between 0 and 10000.';
+                return true;
+            }
+        },
+        {
             type: 'checkbox',
             name: 'selectedLogs',
             message: 'Select log files to monitor:',
@@ -248,6 +260,9 @@ async function runSetup() {
         else {
             config.GEMINI_MODEL = answers.modelName;
         }
+    }
+    if (answers.startupScanLines !== undefined) {
+        config.STARTUP_READ_LINES = parseInt(answers.startupScanLines);
     }
     if (answers.selectedLogs) {
         config.WATCH_FILES = config.WATCH_FILES || [];

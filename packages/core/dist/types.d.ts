@@ -35,4 +35,5 @@ export interface SentinelConfig {
     AI_PROVIDER?: "openai" | "gemini" | "zhipu";
     AI_MODEL?: string;
     WHITELIST_IPS?: string[];
+    STARTUP_READ_LINES?: number;
 }

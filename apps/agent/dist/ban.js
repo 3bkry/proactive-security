@@ -49,7 +49,7 @@ export class BanManager {
     }
     async banIP(ip, reason = "Automated Defense") {
         if (this.bannedIPs.has(ip))
-            return true;
+            return false; // Already banned, skip notification
         // --- SAFETY CHECKS ---
         // 1. Hardcoded Loopback Safety
         if (ip === "127.0.0.1" || ip === "::1" || ip === "0.0.0.0" || ip === "localhost") {
