@@ -1,13 +1,13 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { BanManager } from './ban.js';
+import { Blocker } from './defense/blocker.js';
 export declare class TelegramNotifier {
     private bot;
     private chatId;
-    private banManager;
+    private blocker;
     private sentAlerts;
     private isRateLimited;
     private rateLimitResetTime;
-    constructor(banManager?: BanManager);
+    constructor(blocker?: Blocker | any);
     private loadState;
     private saveState;
     private initialize;

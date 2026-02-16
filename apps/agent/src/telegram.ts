@@ -4,19 +4,19 @@ import { log, CONFIG_FILE, STATE_FILE } from '@sentinel/core';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { BanManager } from './ban.js';
+import { Blocker } from './defense/blocker.js';
 
 export class TelegramNotifier {
     private bot: TelegramBot | null = null;
     private chatId: string | null = null;
-    private banManager: BanManager | null = null;
+    private blocker: Blocker | null = null;
 
     private sentAlerts = new Map<string, number>();
     private isRateLimited = false;
     private rateLimitResetTime = 0;
 
-    constructor(banManager?: BanManager) {
-        if (banManager) this.banManager = banManager;
+    constructor(blocker?: Blocker | any) {
+        if (blocker) this.blocker = blocker;
         this.loadState();
         this.initialize();
 
@@ -77,11 +77,11 @@ export class TelegramNotifier {
 
                     this.bot.on('callback_query', async (query) => {
                         const action = query.data;
-                        if (!action || !this.banManager) return;
+                        if (!action || !this.blocker) return;
 
                         if (action.startsWith('ban_')) {
                             const ip = action.split('_')[1];
-                            await this.banManager.banIP(ip, "Manual Ban via Telegram");
+                            await this.blocker.evaluate({ ip, realIP: ip, proxyIP: null, userAgent: null, endpoint: null, method: null, risk: 'HIGH', reason: 'Manual Ban via Telegram', source: 'telegram', immediate: true });
 
                             // Acknowledge logic
                             if (query.id) {
@@ -96,7 +96,7 @@ export class TelegramNotifier {
                             }
                         } else if (action.startsWith('unban_')) {
                             const ip = action.split('_')[1];
-                            await this.banManager.unbanIP(ip);
+                            await this.blocker.unblock(ip);
 
                             if (query.id) {
                                 this.bot?.answerCallbackQuery(query.id, { text: `IP ${ip} Unbanned!` });
@@ -112,6 +112,7 @@ export class TelegramNotifier {
                             `/status - Server resources & security status\n` +
                             `/stats - AI analysis & cost stats\n` +
                             `/banned - List blocked IPs\n` +
+                            `/whitelist <add|remove|list> [ip] - Manage IP whitelist\n` +
                             `/watch <add|remove|list> [path] - Manage watched files\n` +
                             `/config <cpu|memory|disk> <val> - Set alert thresholds\n` +
                             `/help - Show this message`;
@@ -227,7 +228,7 @@ export class TelegramNotifier {
         const options: TelegramBot.SendMessageOptions = { parse_mode: 'Markdown' };
 
         if (ip && (risk === "HIGH" || risk === "MEDIUM")) {
-            const isBanned = this.banManager?.isBanned(ip);
+            const isBanned = this.blocker?.isBlocked(ip);
             if (isBanned) {
                 options.reply_markup = {
                     inline_keyboard: [[{ text: `🔓 Unban ${ip}`, callback_data: `unban_${ip}` }]]

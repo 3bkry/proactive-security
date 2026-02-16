@@ -4,13 +4,13 @@ import fs from 'fs';
 export class TelegramNotifier {
     bot = null;
     chatId = null;
-    banManager = null;
+    blocker = null;
     sentAlerts = new Map();
     isRateLimited = false;
     rateLimitResetTime = 0;
-    constructor(banManager) {
-        if (banManager)
-            this.banManager = banManager;
+    constructor(blocker) {
+        if (blocker)
+            this.blocker = blocker;
         this.loadState();
         this.initialize();
         // Cleanup old alerts every 10 minutes
@@ -69,11 +69,11 @@ export class TelegramNotifier {
                     log("[Telegram] Initialized successfully with polling.");
                     this.bot.on('callback_query', async (query) => {
                         const action = query.data;
-                        if (!action || !this.banManager)
+                        if (!action || !this.blocker)
                             return;
                         if (action.startsWith('ban_')) {
                             const ip = action.split('_')[1];
-                            await this.banManager.banIP(ip, "Manual Ban via Telegram");
+                            await this.blocker.evaluate({ ip, realIP: ip, proxyIP: null, userAgent: null, endpoint: null, method: null, risk: 'HIGH', reason: 'Manual Ban via Telegram', source: 'telegram', immediate: true });
                             // Acknowledge logic
                             if (query.id) {
                                 this.bot?.answerCallbackQuery(query.id, { text: `IP ${ip} Banned!` });
@@ -88,7 +88,7 @@ export class TelegramNotifier {
                         }
                         else if (action.startsWith('unban_')) {
                             const ip = action.split('_')[1];
-                            await this.banManager.unbanIP(ip);
+                            await this.blocker.unblock(ip);
                             if (query.id) {
                                 this.bot?.answerCallbackQuery(query.id, { text: `IP ${ip} Unbanned!` });
                                 this.sendToChat(query.message.chat.id, `✅ **IP UNBANNED:** ${ip}`, { parse_mode: 'Markdown' });
@@ -103,6 +103,7 @@ export class TelegramNotifier {
                             `/status - Server resources & security status\n` +
                             `/stats - AI analysis & cost stats\n` +
                             `/banned - List blocked IPs\n` +
+                            `/whitelist <add|remove|list> [ip] - Manage IP whitelist\n` +
                             `/watch <add|remove|list> [path] - Manage watched files\n` +
                             `/config <cpu|memory|disk> <val> - Set alert thresholds\n` +
                             `/help - Show this message`;
@@ -213,7 +214,7 @@ export class TelegramNotifier {
         }
         const options = { parse_mode: 'Markdown' };
         if (ip && (risk === "HIGH" || risk === "MEDIUM")) {
-            const isBanned = this.banManager?.isBanned(ip);
+            const isBanned = this.blocker?.isBlocked(ip);
             if (isBanned) {
                 options.reply_markup = {
                     inline_keyboard: [[{ text: `🔓 Unban ${ip}`, callback_data: `unban_${ip}` }]]
