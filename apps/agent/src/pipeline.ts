@@ -157,7 +157,7 @@ export async function processLogLine(line: string, filePath: string): Promise<vo
         if (rateVerdict.triggered) {
             log(`[RateLimit] ⚡ ${realIP}: ${rateVerdict.reason}`);
 
-            if (!isSafeMode && !isWarmingUp) {
+            if (!isWarmingUp) {
                 const result = await blocker.evaluate({
                     ip: realIP,
                     realIP,
@@ -171,10 +171,11 @@ export async function processLogLine(line: string, filePath: string): Promise<vo
                     immediate: rateVerdict.metric === 'request_rate',
                 });
 
+                const dryLabel = isSafeMode ? ' [DRY RUN]' : '';
                 if (result && (result.action === 'temp_block' || result.action === 'perm_block')) {
-                    telegram.notifyBan(realIP, rateVerdict.reason!);
+                    telegram.notifyBan(realIP, `${rateVerdict.reason!}${dryLabel}`);
                     emitBlockEvent(result.action, result.record.reason, resolved, httpFields, filePath);
-                    broadcastAlert(wss, 'HIGH', rateVerdict.reason!, realIP, filePath);
+                    broadcastAlert(wss, 'HIGH', `${rateVerdict.reason!}${dryLabel}`, realIP, filePath);
                 }
             }
 
@@ -186,7 +187,7 @@ export async function processLogLine(line: string, filePath: string): Promise<vo
                 endpoint: httpFields.endpoint,
                 user_agent: httpFields.userAgent,
                 risk: 'HIGH',
-                action: 'rate_limited',
+                action: isSafeMode ? 'dry_run_rate_limited' : 'rate_limited',
                 reason: rateVerdict.reason!,
                 source: filePath,
             });
@@ -258,13 +259,11 @@ export async function processLogLine(line: string, filePath: string): Promise<vo
         // ── Stage 9: Defense Execution ──
         const attackerIP = result.ip || realIP;
         if (attackerIP && (result.risk === 'CRITICAL' || result.risk === 'HIGH' || result.risk === 'MEDIUM')) {
-            if (isSafeMode) {
-                log(`[Safety] 🛡️ SAFE MODE: Suppressed defense against ${attackerIP}`);
-                result.action = 'Monitor Only (Safe Mode)';
-            } else if (isWarmingUp) {
+            if (isWarmingUp) {
                 log(`[Safety] ⏳ WARMUP: Suppressed defense against ${attackerIP}`);
                 result.action = 'Monitor Only (Warmup)';
             } else {
+                const dryLabel = isSafeMode ? ' [DRY RUN]' : '';
                 const blockResult = await blocker.evaluate({
                     ip: attackerIP,
                     realIP,
@@ -279,11 +278,12 @@ export async function processLogLine(line: string, filePath: string): Promise<vo
                 });
 
                 if (blockResult) {
+                    result.action = `${blockResult.action}${dryLabel}`;
                     if (blockResult.action === 'temp_block' || blockResult.action === 'perm_block') {
-                        telegram.notifyBan(attackerIP, result.summary);
+                        telegram.notifyBan(attackerIP, `${result.summary}${dryLabel}`);
                         if (cloudClient) {
-                            cloudClient.sendAlert('IP_BLOCKED', `IP ${attackerIP} ${blockResult.action} (${result.risk}).`, {
-                                ip: attackerIP, reason: result.summary, risk: result.risk, action: blockResult.action,
+                            cloudClient.sendAlert('IP_BLOCKED', `IP ${attackerIP} ${blockResult.action}${dryLabel} (${result.risk}).`, {
+                                ip: attackerIP, reason: result.summary, risk: result.risk, action: blockResult.action, dryRun: isSafeMode,
                             });
                         }
                     }

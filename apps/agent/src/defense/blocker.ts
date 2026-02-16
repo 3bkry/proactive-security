@@ -31,15 +31,28 @@ export class Blocker {
     private tempBlockCounts: Map<string, number> = new Map();
     private config: DefenseConfig;
     private whitelistIPs: Set<string>;
+    private _dryRun: boolean = false;
 
-    constructor(config?: Partial<DefenseConfig>) {
+    constructor(config?: Partial<DefenseConfig>, dryRun: boolean = false) {
         this.config = { ...DEFAULT_DEFENSE_CONFIG, ...config };
         this.whitelistIPs = new Set(this.config.whitelistIPs);
+        this._dryRun = dryRun;
         this.loadState();
 
         // Cleanup expired blocks every 60 seconds
         const cleanup = setInterval(() => this.cleanupExpired(), 60 * 1000);
         if (cleanup && typeof cleanup === 'object' && 'unref' in cleanup) cleanup.unref();
+
+        if (this._dryRun) {
+            log('[Blocker] 🔶 DRY RUN MODE: iptables enforcement disabled. Alerts and tracking only.');
+        }
+    }
+
+    get dryRun(): boolean { return this._dryRun; }
+
+    setDryRun(enabled: boolean): void {
+        this._dryRun = enabled;
+        log(`[Blocker] ${enabled ? '🔶 DRY RUN enabled — iptables disabled' : '🟢 DRY RUN disabled — iptables enforcement active'}`);
     }
 
     // ── Whitelist Management ──────────────────────────────────────
@@ -180,7 +193,11 @@ export class Blocker {
         // ── Execute ──
         if (action === 'temp_block' || action === 'perm_block') {
             this.activeBlocks.set(realIP, record);
-            this.executeBlock(realIP);
+            if (this._dryRun) {
+                log(`[Blocker] 🔶 DRY RUN: Would ${action} ${realIP} — skipping iptables`);
+            } else {
+                this.executeBlock(realIP);
+            }
             this.saveState();
         }
 
@@ -263,10 +280,14 @@ export class Blocker {
         if (!this.activeBlocks.has(ip)) return false;
 
         log(`[Blocker] 🔓 Unblocking IP: ${ip}`);
-        exec(`iptables -D INPUT -s ${ip} -j DROP 2>/dev/null; iptables -D DOCKER-USER -s ${ip} -j DROP 2>/dev/null`,
-            (error: Error | null) => {
-                if (error) log(`[Blocker] ⚠️ Unblock error for ${ip}: ${error.message}`);
-            });
+        if (!this._dryRun) {
+            exec(`iptables -D INPUT -s ${ip} -j DROP 2>/dev/null; iptables -D DOCKER-USER -s ${ip} -j DROP 2>/dev/null`,
+                (error: Error | null) => {
+                    if (error) log(`[Blocker] ⚠️ Unblock error for ${ip}: ${error.message}`);
+                });
+        } else {
+            log(`[Blocker] 🔶 DRY RUN: Would unblock ${ip} — skipping iptables`);
+        }
 
         this.activeBlocks.delete(ip);
         this.offenses.delete(ip);
@@ -312,7 +333,9 @@ export class Blocker {
             if (data.activeBlocks) {
                 for (const [ip, record] of Object.entries(data.activeBlocks)) {
                     this.activeBlocks.set(ip, record as BlockRecord);
-                    this.executeBlock(ip);
+                    if (!this._dryRun) {
+                        this.executeBlock(ip);
+                    }
                 }
             }
             if (data.tempBlockCounts) {

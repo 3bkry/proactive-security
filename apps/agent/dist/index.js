@@ -82,7 +82,7 @@ if (fs.existsSync(CONFIG_FILE)) {
     }
     catch (e) { /* ok */ }
 }
-const blocker = new Blocker(defenseConfig);
+const blocker = new Blocker(defenseConfig, isSafeMode);
 const rateLimiter = new RateLimiter(defenseConfig);
 const telegram = new TelegramNotifier(blocker); // Blocker has compatible API
 const heartbeat = new HeartbeatService(wss);
