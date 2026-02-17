@@ -97,13 +97,13 @@ export class CloudflareBlocker {
 
     /**
      * Block an IP via Cloudflare Access Rules.
-     * Creates the rule on the first zone (account-level blocking uses any zone).
+     * Creates the rule on ALL zones — an attacker on one domain is a threat to all.
      */
     async blockIP(ip: string, reason: string): Promise<string | null> {
         await this.ready;
         if (this.zoneIds.length === 0) return null;
 
-        const zoneId = this.zoneIds[0];
+        let firstRuleId: string | null = null;
 
         try {
             const body = JSON.stringify({
@@ -112,25 +112,27 @@ export class CloudflareBlocker {
                 notes: `SentinelAI: ${reason} (${new Date().toISOString()})`,
             });
 
-            const response = await this.apiRequest('POST', `/zones/${zoneId}/firewall/access_rules/rules`, body);
+            for (const zoneId of this.zoneIds) {
+                const response = await this.apiRequest('POST', `/zones/${zoneId}/firewall/access_rules/rules`, body);
 
-            if (response.success && response.result?.id) {
-                const ruleId = response.result.id;
-                this.ruleCache.set(ip, ruleId);
-                log(`[CF-API] ✅ Blocked ${ip} via Cloudflare (rule: ${ruleId})`);
-                return ruleId;
+                if (response.success && response.result?.id) {
+                    if (!firstRuleId) firstRuleId = response.result.id;
+                } else if (response.errors?.some((e: any) => e.message?.includes('already exists'))) {
+                    if (!firstRuleId) firstRuleId = 'existing';
+                }
             }
 
-            if (response.errors?.some((e: any) => e.message?.includes('already exists'))) {
-                log(`[CF-API] ℹ️ ${ip} is already blocked in Cloudflare.`);
-                return 'existing';
+            if (firstRuleId) {
+                this.ruleCache.set(ip, firstRuleId);
+                log(`[CF-API] ✅ Blocked ${ip} across ${this.zoneIds.length} zone(s)`);
+            } else {
+                log(`[CF-API] ❌ Failed to block ${ip} on any zone`);
             }
 
-            log(`[CF-API] ❌ Failed to block ${ip}: ${JSON.stringify(response.errors)}`);
-            return null;
+            return firstRuleId;
         } catch (e) {
             log(`[CF-API] ❌ Error blocking ${ip}: ${e}`);
-            return null;
+            return firstRuleId;
         }
     }
 
@@ -141,52 +143,43 @@ export class CloudflareBlocker {
         await this.ready;
         if (this.zoneIds.length === 0) return false;
 
+        let unblocked = false;
+
         try {
-            let ruleId = this.ruleCache.get(ip);
+            // Unblock from ALL zones
+            for (const zoneId of this.zoneIds) {
+                // Find rule in this zone
+                let ruleId: string | undefined;
+                try {
+                    const response = await this.apiRequest(
+                        'GET',
+                        `/zones/${zoneId}/firewall/access_rules/rules?configuration.value=${ip}&mode=block&page=1&per_page=5`
+                    );
+                    if (response.success && response.result?.length > 0) {
+                        ruleId = response.result[0].id;
+                    }
+                } catch { /* skip zone */ }
 
-            if (!ruleId || ruleId === 'existing') {
-                const foundId = await this.findRuleByIP(ip);
-                if (!foundId) {
-                    log(`[CF-API] ℹ️ No block rule found for ${ip} in Cloudflare.`);
-                    return false;
-                }
-                ruleId = foundId;
+                if (!ruleId) continue;
+
+                const delResponse = await this.apiRequest(
+                    'DELETE',
+                    `/zones/${zoneId}/firewall/access_rules/rules/${ruleId}`
+                );
+                if (delResponse.success) unblocked = true;
             }
 
-            const zoneId = this.zoneIds[0];
-            const response = await this.apiRequest(
-                'DELETE',
-                `/zones/${zoneId}/firewall/access_rules/rules/${ruleId}`
-            );
-
-            if (response.success) {
+            if (unblocked) {
                 this.ruleCache.delete(ip);
-                log(`[CF-API] ✅ Unblocked ${ip} from Cloudflare (rule: ${ruleId})`);
-                return true;
+                log(`[CF-API] ✅ Unblocked ${ip} from all zones`);
+            } else {
+                log(`[CF-API] ℹ️ No block rule found for ${ip} in any zone`);
             }
 
-            log(`[CF-API] ❌ Failed to unblock ${ip}: ${JSON.stringify(response.errors)}`);
-            return false;
+            return unblocked;
         } catch (e) {
             log(`[CF-API] ❌ Error unblocking ${ip}: ${e}`);
-            return false;
-        }
-    }
-
-    private async findRuleByIP(ip: string): Promise<string | null> {
-        const zoneId = this.zoneIds[0];
-        try {
-            const response = await this.apiRequest(
-                'GET',
-                `/zones/${zoneId}/firewall/access_rules/rules?configuration.value=${ip}&mode=block&page=1&per_page=20`
-            );
-            if (response.success && response.result?.length > 0) {
-                return response.result[0].id;
-            }
-            return null;
-        } catch (e) {
-            log(`[CF-API] ⚠️ Error searching for rule: ${e}`);
-            return null;
+            return unblocked;
         }
     }
 
