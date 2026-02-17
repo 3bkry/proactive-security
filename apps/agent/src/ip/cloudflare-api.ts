@@ -34,6 +34,10 @@ export class CloudflareBlocker {
     private ruleCache: Map<string, string> = new Map(); // ip → ruleId
     private ready: Promise<void>;
 
+    // Rate limit protection: serial queue with delay between requests
+    private requestQueue: Promise<any> = Promise.resolve();
+    private static readonly REQUEST_DELAY_MS = 250; // 250ms between calls = max ~240 req/min (CF allows 1200/5min)
+
     constructor(config: CloudflareAPIConfig) {
         // Determine auth method
         if (config.apiKey && config.email) {
@@ -113,7 +117,7 @@ export class CloudflareBlocker {
             });
 
             for (const zoneId of this.zoneIds) {
-                const response = await this.apiRequest('POST', `/zones/${zoneId}/firewall/access_rules/rules`, body);
+                const response = await this.throttledRequest('POST', `/zones/${zoneId}/firewall/access_rules/rules`, body);
 
                 if (response.success && response.result?.id) {
                     if (!firstRuleId) firstRuleId = response.result.id;
@@ -146,12 +150,10 @@ export class CloudflareBlocker {
         let unblocked = false;
 
         try {
-            // Unblock from ALL zones
             for (const zoneId of this.zoneIds) {
-                // Find rule in this zone
                 let ruleId: string | undefined;
                 try {
-                    const response = await this.apiRequest(
+                    const response = await this.throttledRequest(
                         'GET',
                         `/zones/${zoneId}/firewall/access_rules/rules?configuration.value=${ip}&mode=block&page=1&per_page=5`
                     );
@@ -162,7 +164,7 @@ export class CloudflareBlocker {
 
                 if (!ruleId) continue;
 
-                const delResponse = await this.apiRequest(
+                const delResponse = await this.throttledRequest(
                     'DELETE',
                     `/zones/${zoneId}/firewall/access_rules/rules/${ruleId}`
                 );
@@ -217,6 +219,23 @@ export class CloudflareBlocker {
     async testConnection(): Promise<boolean> {
         await this.ready;
         return this.zoneIds.length > 0;
+    }
+
+    // ── Rate-Limited Request Queue ────────────────────────────────
+
+    /**
+     * Enqueue a CF API request. All calls go through a serial queue
+     * with a delay between requests to stay well under CF's rate limit.
+     */
+    private throttledRequest(method: string, path: string, body?: string): Promise<CFAPIResponse> {
+        const task = this.requestQueue.then(async () => {
+            const result = await this.apiRequest(method, path, body);
+            await new Promise(r => setTimeout(r, CloudflareBlocker.REQUEST_DELAY_MS));
+            return result;
+        });
+        // Update queue head (ignore errors so queue doesn't stall)
+        this.requestQueue = task.catch(() => { });
+        return task;
     }
 
     // ── HTTP Helper ──────────────────────────────────────────────
