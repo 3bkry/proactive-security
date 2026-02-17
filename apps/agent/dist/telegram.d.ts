@@ -17,5 +17,5 @@ export declare class TelegramNotifier {
     sendMessage(text: string, options?: TelegramBot.SendMessageOptions): Promise<void>;
     sendToChat(chatId: number | string, text: string, options?: TelegramBot.SendMessageOptions): Promise<void>;
     sendAlert(risk: string, summary: string, ip?: string, strikes?: number): Promise<void>;
-    notifyBan(ip: string, reason: string): Promise<void>;
+    notifyBan(ip: string, reason: string, method?: string): Promise<void>;
 }

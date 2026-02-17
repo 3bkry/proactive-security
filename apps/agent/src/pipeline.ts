@@ -173,7 +173,8 @@ export async function processLogLine(line: string, filePath: string): Promise<vo
 
                 const dryLabel = isSafeMode ? ' [DRY RUN]' : '';
                 if (result && (result.action === 'temp_block' || result.action === 'perm_block')) {
-                    telegram.notifyBan(realIP, `${rateVerdict.reason!}${dryLabel}`);
+                    const method = result.record.blockMethod || 'iptables';
+                    telegram.notifyBan(realIP, `${rateVerdict.reason!}${dryLabel}`, method);
                     emitBlockEvent(result.action, result.record.reason, resolved, httpFields, filePath);
                     broadcastAlert(wss, 'HIGH', `${rateVerdict.reason!}${dryLabel}`, realIP, filePath);
                 }
@@ -280,10 +281,11 @@ export async function processLogLine(line: string, filePath: string): Promise<vo
                 if (blockResult) {
                     result.action = `${blockResult.action}${dryLabel}`;
                     if (blockResult.action === 'temp_block' || blockResult.action === 'perm_block') {
-                        telegram.notifyBan(attackerIP, `${result.summary}${dryLabel}`);
+                        const method = blockResult.record.blockMethod || 'iptables';
+                        telegram.notifyBan(attackerIP, `${result.summary}${dryLabel}`, method);
                         if (cloudClient) {
-                            cloudClient.sendAlert('IP_BLOCKED', `IP ${attackerIP} ${blockResult.action}${dryLabel} (${result.risk}).`, {
-                                ip: attackerIP, reason: result.summary, risk: result.risk, action: blockResult.action, dryRun: isSafeMode,
+                            cloudClient.sendAlert('IP_BLOCKED', `IP ${attackerIP} ${blockResult.action}${dryLabel} via ${method} (${result.risk}).`, {
+                                ip: attackerIP, reason: result.summary, risk: result.risk, action: blockResult.action, dryRun: isSafeMode, blockMethod: method,
                             });
                         }
                     }

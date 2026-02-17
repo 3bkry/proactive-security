@@ -229,7 +229,7 @@ export class TelegramNotifier {
         await this.sendMessage(message, options);
         log(`[Telegram] Alert sent.`);
     }
-    async notifyBan(ip, reason) {
+    async notifyBan(ip, reason, method) {
         if (!this.bot || !this.chatId)
             return;
         // Deduplicate ban notifications too
@@ -241,13 +241,21 @@ export class TelegramNotifier {
         }
         this.sentAlerts.set(checkString, now);
         this.saveState();
+        // Human-readable method label
+        const methodLabels = {
+            'cloudflare_api': '☁️ Cloudflare API',
+            'nginx_deny': '🌐 Nginx Deny',
+            'apache_deny': '🌐 Apache Deny',
+            'iptables': '🔥 iptables',
+        };
+        const methodLabel = method ? (methodLabels[method] || method) : '🔥 iptables';
         const opts = {
             parse_mode: 'Markdown',
             reply_markup: {
                 inline_keyboard: [[{ text: `🔓 Unban ${ip}`, callback_data: `unban_${ip}` }]]
             }
         };
-        await this.sendMessage(`🚫 **AUTO-BAN TRIGGERED:** IP ${ip}\nReason: ${reason}`, opts);
+        await this.sendMessage(`🚫 **AUTO-BAN TRIGGERED:** IP ${ip}\nMethod: ${methodLabel}\nReason: ${reason}`, opts);
     }
 }
 //# sourceMappingURL=telegram.js.map
