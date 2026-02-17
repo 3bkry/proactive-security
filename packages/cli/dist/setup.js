@@ -314,12 +314,63 @@ async function runSetup() {
     // Cloudflare API Configuration
     if (answers.behindCloudflare) {
         if (answers.cfApiKey && answers.cfEmail) {
-            config.CF_API_KEY = answers.cfApiKey;
-            config.CF_EMAIL = answers.cfEmail;
-            // Clean up old token-based config if present
-            delete config.CF_API_TOKEN;
-            delete config.CF_ZONE_ID;
-            console.log(chalk_1.default.green('\n☁️  Cloudflare API blocking configured — zones will be auto-discovered.'));
+            // Test the connection before saving
+            const cfSpinner = (0, ora_1.default)('Testing Cloudflare API connection...').start();
+            try {
+                const https = require('https');
+                const testResult = await new Promise((resolve, reject) => {
+                    const options = {
+                        hostname: 'api.cloudflare.com',
+                        port: 443,
+                        path: '/client/v4/zones?per_page=5&status=active',
+                        method: 'GET',
+                        headers: {
+                            'X-Auth-Key': answers.cfApiKey,
+                            'X-Auth-Email': answers.cfEmail,
+                            'Content-Type': 'application/json',
+                        },
+                        timeout: 10000,
+                    };
+                    const req = https.request(options, (res) => {
+                        let data = '';
+                        res.on('data', (chunk) => { data += chunk; });
+                        res.on('end', () => {
+                            try {
+                                resolve(JSON.parse(data));
+                            }
+                            catch {
+                                reject(new Error('Invalid response'));
+                            }
+                        });
+                    });
+                    req.on('error', reject);
+                    req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+                    req.end();
+                });
+                if (testResult.success && testResult.result?.length > 0) {
+                    const zoneNames = testResult.result.map((z) => z.name).join(', ');
+                    cfSpinner.succeed(chalk_1.default.green(`Cloudflare API connected! Found ${testResult.result.length} zone(s): ${zoneNames}`));
+                    config.CF_API_KEY = answers.cfApiKey;
+                    config.CF_EMAIL = answers.cfEmail;
+                    delete config.CF_API_TOKEN;
+                    delete config.CF_ZONE_ID;
+                }
+                else {
+                    const errMsg = testResult.errors?.[0]?.message || 'Unknown error';
+                    cfSpinner.fail(chalk_1.default.red(`Cloudflare API error: ${errMsg}`));
+                    console.log(chalk_1.default.yellow('   Check your Global API Key and email at:'));
+                    console.log(chalk_1.default.yellow('   https://dash.cloudflare.com/profile/api-tokens → Global API Key'));
+                    console.log(chalk_1.default.dim('   Falling back to Nginx/Apache deny rules.\n'));
+                    delete config.CF_API_KEY;
+                    delete config.CF_EMAIL;
+                }
+            }
+            catch (e) {
+                cfSpinner.fail(chalk_1.default.red(`Cloudflare connection failed: ${e.message}`));
+                console.log(chalk_1.default.dim('   Falling back to Nginx/Apache deny rules.\n'));
+                delete config.CF_API_KEY;
+                delete config.CF_EMAIL;
+            }
         }
         else {
             delete config.CF_API_KEY;

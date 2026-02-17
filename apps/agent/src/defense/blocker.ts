@@ -73,7 +73,7 @@ export class Blocker {
         this.whitelistIPs = new Set(this.config.whitelistIPs);
 
         // Initialize blocking backends
-        if (cfConfig?.apiToken && cfConfig?.zoneId) {
+        if (cfConfig && ((cfConfig.apiKey && cfConfig.email) || (cfConfig.apiToken && cfConfig.zoneId))) {
             this.cfBlocker = new CloudflareBlocker(cfConfig);
         }
 
