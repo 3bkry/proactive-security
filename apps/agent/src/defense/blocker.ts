@@ -337,31 +337,31 @@ export class Blocker {
     // ── Blocking Execution ─────────────────────────────────────────
 
     /**
-     * Execute a block using the appropriate method.
+     * Execute a block using the primary method + always add iptables too.
+     * Defense in depth: even if CF or nginx blocks, iptables is an extra layer.
      */
     private async executeBlock(ip: string, method: BlockMethod, reason: string, record: BlockRecord): Promise<void> {
+        // 1. Primary method
         switch (method) {
             case 'cloudflare_api': {
-                if (!this.cfBlocker) { this.executeIptablesBlock(ip); return; }
-                const ruleId = await this.cfBlocker.blockIP(ip, reason);
-                if (ruleId) {
-                    record.cfRuleId = ruleId;
+                if (this.cfBlocker) {
+                    const ruleId = await this.cfBlocker.blockIP(ip, reason);
+                    if (ruleId) record.cfRuleId = ruleId;
                 }
-                return;
+                break;
             }
 
             case 'nginx_deny':
             case 'apache_deny': {
-                if (!this.webDenyManager) { this.executeIptablesBlock(ip); return; }
-                await this.webDenyManager.addDeny(ip);
-                return;
+                if (this.webDenyManager) {
+                    await this.webDenyManager.addDeny(ip);
+                }
+                break;
             }
-
-            case 'iptables':
-            default:
-                this.executeIptablesBlock(ip);
-                return;
         }
+
+        // 2. Always add iptables as well (defense in depth)
+        this.executeIptablesBlock(ip);
     }
 
     private executeIptablesBlock(ip: string): void {
@@ -401,6 +401,7 @@ export class Blocker {
         log(`[Blocker] 🔓 Unblocking IP: ${ip} (method: ${method})`);
 
         if (!this._dryRun) {
+            // Undo primary method
             switch (method) {
                 case 'cloudflare_api': {
                     if (this.cfBlocker) {
@@ -416,16 +417,13 @@ export class Blocker {
                     }
                     break;
                 }
-
-                case 'iptables':
-                default: {
-                    exec(`iptables -D INPUT -s ${ip} -j DROP 2>/dev/null; iptables -D DOCKER-USER -s ${ip} -j DROP 2>/dev/null`,
-                        (error: Error | null) => {
-                            if (error) log(`[Blocker] ⚠️ Unblock error for ${ip}: ${error.message}`);
-                        });
-                    break;
-                }
             }
+
+            // Always remove iptables too (was always added alongside)
+            exec(`iptables -D INPUT -s ${ip} -j DROP 2>/dev/null; iptables -D DOCKER-USER -s ${ip} -j DROP 2>/dev/null`,
+                (error: Error | null) => {
+                    if (error) log(`[Blocker] ⚠️ iptables unblock note for ${ip}: ${error.message}`);
+                });
         } else {
             log(`[Blocker] 🔶 DRY RUN: Would unblock ${ip} via ${method} — skipping`);
         }
