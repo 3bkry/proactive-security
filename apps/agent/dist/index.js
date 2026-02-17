@@ -72,6 +72,7 @@ const watcher = new LogWatcher();
 const aiManager = new AIManager();
 // Load defense config from config.json if present
 let defenseConfig = {};
+let cfAPIConfig;
 if (fs.existsSync(CONFIG_FILE)) {
     try {
         const config = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
@@ -79,10 +80,19 @@ if (fs.existsSync(CONFIG_FILE)) {
             defenseConfig = config.defense;
         if (config.TRUSTED_PROXIES)
             setTrustedProxies(config.TRUSTED_PROXIES);
+        // Cloudflare API config (optional)
+        if (config.CF_API_TOKEN && config.CF_ZONE_ID) {
+            cfAPIConfig = { apiToken: config.CF_API_TOKEN, zoneId: config.CF_ZONE_ID };
+            log("[Config] ☁️ Cloudflare API blocking configured.");
+        }
     }
     catch (e) { /* ok */ }
 }
-const blocker = new Blocker(defenseConfig, isSafeMode);
+const blocker = new Blocker({
+    defense: defenseConfig,
+    dryRun: isSafeMode,
+    cloudflareAPI: cfAPIConfig,
+});
 const rateLimiter = new RateLimiter(defenseConfig);
 const telegram = new TelegramNotifier(blocker); // Blocker has compatible API
 const heartbeat = new HeartbeatService(wss);

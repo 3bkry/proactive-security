@@ -1,5 +1,5 @@
 /**
- * Progressive Blocker — Replaces the old BanManager.
+ * Progressive Blocker — Smart multi-method IP blocking.
  *
  * Strategy:
  *  - 1st offense → log only
@@ -7,10 +7,16 @@
  *  - HIGH/CRITICAL severity → immediate block
  *  - 3+ temp blocks → permanent block
  *
+ * Blocking Method Selection:
+ *  - If CF API key configured → Cloudflare API (blocks globally before reaching server)
+ *  - If behind CF, no API key → Nginx/Apache deny rules (blocks at application layer)
+ *  - If not behind CF → iptables (blocks at network layer)
+ *
  * Safety:
  *  - Never bans Cloudflare IPs
  *  - Never bans verified bots
  *  - Never bans whitelisted/loopback/self IPs
+ *  - Each block record saves its method for correct reversal
  */
 
 import { exec } from 'child_process';
@@ -20,10 +26,18 @@ import { log, CONFIG_FILE, SENTINEL_DATA_DIR } from '@sentinel/core';
 import * as path from 'path';
 import { isCloudflareIP } from '../ip/cloudflare.js';
 import { isVerifiedBot } from '../bots/verifier.js';
-import type { BlockAction, BlockRecord, DefenseConfig, OffenseEntry } from './types.js';
+import { CloudflareBlocker, type CloudflareAPIConfig } from '../ip/cloudflare-api.js';
+import { WebServerDenyManager, detectWebServer, type WebServerType } from './webserver-deny.js';
+import type { BlockAction, BlockMethod, BlockRecord, DefenseConfig, OffenseEntry } from './types.js';
 import { DEFAULT_DEFENSE_CONFIG } from './types.js';
 
 const BLOCK_RECORDS_FILE = path.join(SENTINEL_DATA_DIR, 'block_records.json');
+
+export interface BlockerConfig {
+    defense?: Partial<DefenseConfig>;
+    dryRun?: boolean;
+    cloudflareAPI?: CloudflareAPIConfig;
+}
 
 export class Blocker {
     private offenses: Map<string, OffenseEntry> = new Map();
@@ -33,26 +47,63 @@ export class Blocker {
     private whitelistIPs: Set<string>;
     private _dryRun: boolean = false;
 
-    constructor(config?: Partial<DefenseConfig>, dryRun: boolean = false) {
-        this.config = { ...DEFAULT_DEFENSE_CONFIG, ...config };
+    // Blocking backends
+    private cfBlocker: CloudflareBlocker | null = null;
+    private webDenyManager: WebServerDenyManager | null = null;
+    private detectedWebServer: WebServerType = null;
+
+    constructor(configOrDefense?: Partial<DefenseConfig> | BlockerConfig, dryRun?: boolean) {
+        // Support both old signature (DefenseConfig, dryRun) and new (BlockerConfig)
+        let defenseConfig: Partial<DefenseConfig> = {};
+        let cfConfig: CloudflareAPIConfig | undefined;
+
+        if (configOrDefense && 'defense' in configOrDefense) {
+            // New BlockerConfig format
+            const bc = configOrDefense as BlockerConfig;
+            defenseConfig = bc.defense || {};
+            this._dryRun = bc.dryRun || false;
+            cfConfig = bc.cloudflareAPI;
+        } else {
+            // Old format: (DefenseConfig, dryRun)
+            defenseConfig = (configOrDefense as Partial<DefenseConfig>) || {};
+            this._dryRun = dryRun || false;
+        }
+
+        this.config = { ...DEFAULT_DEFENSE_CONFIG, ...defenseConfig };
         this.whitelistIPs = new Set(this.config.whitelistIPs);
-        this._dryRun = dryRun;
+
+        // Initialize blocking backends
+        if (cfConfig?.apiToken && cfConfig?.zoneId) {
+            this.cfBlocker = new CloudflareBlocker(cfConfig);
+        }
+
+        this.detectedWebServer = detectWebServer();
+        if (this.detectedWebServer) {
+            this.webDenyManager = new WebServerDenyManager(this.detectedWebServer);
+        }
+
         this.loadState();
 
         // Cleanup expired blocks every 60 seconds
         const cleanup = setInterval(() => this.cleanupExpired(), 60 * 1000);
         if (cleanup && typeof cleanup === 'object' && 'unref' in cleanup) cleanup.unref();
 
+        // Startup logging
         if (this._dryRun) {
-            log('[Blocker] 🔶 DRY RUN MODE: iptables enforcement disabled. Alerts and tracking only.');
+            log('[Blocker] 🔶 DRY RUN MODE: All enforcement disabled. Alerts and tracking only.');
         }
+
+        log(`[Blocker] Blocking methods available:`);
+        log(`  • Cloudflare API: ${this.cfBlocker ? '✅ configured' : '❌ not configured'}`);
+        log(`  • Web server deny: ${this.webDenyManager ? `✅ ${this.detectedWebServer}` : '❌ not detected'}`);
+        log(`  • iptables: ✅ always available (for non-proxied traffic)`);
     }
 
     get dryRun(): boolean { return this._dryRun; }
 
     setDryRun(enabled: boolean): void {
         this._dryRun = enabled;
-        log(`[Blocker] ${enabled ? '🔶 DRY RUN enabled — iptables disabled' : '🟢 DRY RUN disabled — iptables enforcement active'}`);
+        log(`[Blocker] ${enabled ? '🔶 DRY RUN enabled — all enforcement disabled' : '🟢 DRY RUN disabled — enforcement active'}`);
     }
 
     // ── Whitelist Management ──────────────────────────────────────
@@ -97,6 +148,34 @@ export class Blocker {
         } catch (e) {
             log(`[Blocker] ⚠️ Failed to persist whitelist: ${e}`);
         }
+    }
+
+    // ── Block Method Selection ────────────────────────────────────
+
+    /**
+     * Choose the right blocking method based on the traffic path.
+     *
+     * Decision tree:
+     *  1. If CF API configured → always use CF API (blocks globally)
+     *  2. If proxyIP is a Cloudflare IP → use web server deny (iptables won't work)
+     *  3. Otherwise → use iptables (direct traffic, most effective)
+     */
+    private selectBlockMethod(proxyIP: string | null): BlockMethod {
+        // If Cloudflare API is configured, always prefer it
+        if (this.cfBlocker) {
+            return 'cloudflare_api';
+        }
+
+        // If the proxy is Cloudflare, iptables can't help — use web server deny rules
+        if (proxyIP && isCloudflareIP(proxyIP)) {
+            if (this.webDenyManager) {
+                return this.detectedWebServer === 'apache' ? 'apache_deny' : 'nginx_deny';
+            }
+            // No web server detected — log warning, fall through to iptables (won't be effective)
+            log(`[Blocker] ⚠️ Behind Cloudflare but no web server or CF API configured — iptables block will be ineffective!`);
+        }
+
+        return 'iptables';
     }
 
     // ── Core Decision Engine ──────────────────────────────────────
@@ -172,6 +251,9 @@ export class Blocker {
             }
         }
 
+        // ── Select Blocking Method ──
+        const blockMethod = this.selectBlockMethod(params.proxyIP);
+
         // ── Build Record ──
         const record: BlockRecord = {
             ip: params.ip,
@@ -188,15 +270,16 @@ export class Blocker {
             expiresAt: action === 'temp_block'
                 ? Date.now() + this.randomTempBlockDuration()
                 : action === 'perm_block' ? null : null,
+            blockMethod,
         };
 
         // ── Execute ──
         if (action === 'temp_block' || action === 'perm_block') {
             this.activeBlocks.set(realIP, record);
             if (this._dryRun) {
-                log(`[Blocker] 🔶 DRY RUN: Would ${action} ${realIP} — skipping iptables`);
+                log(`[Blocker] 🔶 DRY RUN: Would ${action} ${realIP} via ${blockMethod} — skipping`);
             } else {
-                this.executeBlock(realIP);
+                await this.executeBlock(realIP, blockMethod, params.reason, record);
             }
             this.saveState();
         }
@@ -251,9 +334,37 @@ export class Blocker {
         return /googlebot|bingbot|slurp|duckduckbot/i.test(ua);
     }
 
-    // ── Firewall Execution ─────────────────────────────────────────
+    // ── Blocking Execution ─────────────────────────────────────────
 
-    private executeBlock(ip: string): void {
+    /**
+     * Execute a block using the appropriate method.
+     */
+    private async executeBlock(ip: string, method: BlockMethod, reason: string, record: BlockRecord): Promise<void> {
+        switch (method) {
+            case 'cloudflare_api': {
+                if (!this.cfBlocker) { this.executeIptablesBlock(ip); return; }
+                const ruleId = await this.cfBlocker.blockIP(ip, reason);
+                if (ruleId) {
+                    record.cfRuleId = ruleId;
+                }
+                return;
+            }
+
+            case 'nginx_deny':
+            case 'apache_deny': {
+                if (!this.webDenyManager) { this.executeIptablesBlock(ip); return; }
+                await this.webDenyManager.addDeny(ip);
+                return;
+            }
+
+            case 'iptables':
+            default:
+                this.executeIptablesBlock(ip);
+                return;
+        }
+    }
+
+    private executeIptablesBlock(ip: string): void {
         // Allowlist safety rules first
         const safetyRules = [
             `iptables -C INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT`,
@@ -276,17 +387,47 @@ export class Blocker {
         });
     }
 
-    async unblock(ip: string): Promise<boolean> {
-        if (!this.activeBlocks.has(ip)) return false;
+    // ── Unblocking ─────────────────────────────────────────────────
 
-        log(`[Blocker] 🔓 Unblocking IP: ${ip}`);
+    /**
+     * Unblock an IP using the same method that was used to block it.
+     */
+    async unblock(ip: string): Promise<boolean> {
+        const record = this.activeBlocks.get(ip);
+        if (!record) return false;
+
+        const method = record.blockMethod || 'iptables'; // fallback for old records
+
+        log(`[Blocker] 🔓 Unblocking IP: ${ip} (method: ${method})`);
+
         if (!this._dryRun) {
-            exec(`iptables -D INPUT -s ${ip} -j DROP 2>/dev/null; iptables -D DOCKER-USER -s ${ip} -j DROP 2>/dev/null`,
-                (error: Error | null) => {
-                    if (error) log(`[Blocker] ⚠️ Unblock error for ${ip}: ${error.message}`);
-                });
+            switch (method) {
+                case 'cloudflare_api': {
+                    if (this.cfBlocker) {
+                        await this.cfBlocker.unblockIP(ip);
+                    }
+                    break;
+                }
+
+                case 'nginx_deny':
+                case 'apache_deny': {
+                    if (this.webDenyManager) {
+                        await this.webDenyManager.removeDeny(ip);
+                    }
+                    break;
+                }
+
+                case 'iptables':
+                default: {
+                    exec(`iptables -D INPUT -s ${ip} -j DROP 2>/dev/null; iptables -D DOCKER-USER -s ${ip} -j DROP 2>/dev/null`,
+                        (error: Error | null) => {
+                            if (error) log(`[Blocker] ⚠️ Unblock error for ${ip}: ${error.message}`);
+                        });
+                    break;
+                }
+            }
         } else {
-            log(`[Blocker] 🔶 DRY RUN: Would unblock ${ip} — skipping iptables`);
+            log(`[Blocker] 🔶 DRY RUN: Would unblock ${ip} via ${method} — skipping`);
         }
 
         this.activeBlocks.delete(ip);
@@ -332,9 +473,14 @@ export class Blocker {
             const data = JSON.parse(fs.readFileSync(BLOCK_RECORDS_FILE, 'utf-8'));
             if (data.activeBlocks) {
                 for (const [ip, record] of Object.entries(data.activeBlocks)) {
-                    this.activeBlocks.set(ip, record as BlockRecord);
+                    const blockRecord = record as BlockRecord;
+                    // Backfill blockMethod for old records
+                    if (!blockRecord.blockMethod) {
+                        blockRecord.blockMethod = 'iptables';
+                    }
+                    this.activeBlocks.set(ip, blockRecord);
                     if (!this._dryRun) {
-                        this.executeBlock(ip);
+                        this.executeBlock(ip, blockRecord.blockMethod, blockRecord.reason, blockRecord);
                     }
                 }
             }

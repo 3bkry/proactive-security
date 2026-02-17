@@ -230,7 +230,35 @@ async function runSetup() {
             when: (answers) => answers.enableTelegram,
             default: config.TELEGRAM_BOT_TOKEN || '',
             validate: (input) => input.length > 10 || 'Token seems too short.'
-        }
+        },
+        // ── Cloudflare Configuration (Optional) ──────────────────
+        {
+            type: 'confirm',
+            name: 'behindCloudflare',
+            message: chalk_1.default.yellow('Are you behind Cloudflare? (Enables smart IP blocking)'),
+            default: !!config.CF_API_TOKEN || !!config.CF_ZONE_ID
+        },
+        {
+            type: 'input',
+            name: 'cfApiToken',
+            message: (answers) => {
+                console.log(chalk_1.default.cyan('\n☁️  Cloudflare API Token allows global IP blocking.'));
+                console.log(chalk_1.default.cyan('   Create one at: https://dash.cloudflare.com/profile/api-tokens'));
+                console.log(chalk_1.default.cyan('   Required permissions: Account > Account Firewall Access Rules > Edit'));
+                console.log(chalk_1.default.dim('   Leave blank to use Nginx/Apache deny rules as fallback.\n'));
+                return 'Enter Cloudflare API Token (optional):';
+            },
+            when: (answers) => answers.behindCloudflare,
+            default: config.CF_API_TOKEN || '',
+        },
+        {
+            type: 'input',
+            name: 'cfZoneId',
+            message: 'Enter Cloudflare Zone ID (found on your domain\'s overview page):',
+            when: (answers) => answers.behindCloudflare && answers.cfApiToken,
+            default: config.CF_ZONE_ID || '',
+            validate: (input) => input.length > 10 || 'Zone ID seems too short (check your Cloudflare dashboard).'
+        },
     ];
     const answers = await inquirer_1.default.prompt(questions);
     const spinner = (0, ora_1.default)('Configuring SentinelAI...').start();
@@ -281,6 +309,24 @@ async function runSetup() {
         config.SENTINEL_AGENT_KEY = answers.cloudKey;
         // Also set the Cloud URL by default if key is provided
         config.SENTINEL_CLOUD_URL = "https://proactive-security-web.vercel.app";
+    }
+    // Cloudflare API Configuration
+    if (answers.behindCloudflare) {
+        if (answers.cfApiToken && answers.cfZoneId) {
+            config.CF_API_TOKEN = answers.cfApiToken;
+            config.CF_ZONE_ID = answers.cfZoneId;
+            console.log(chalk_1.default.green('\n☁️  Cloudflare API blocking configured — attackers will be blocked globally.'));
+        }
+        else {
+            // Remove any old CF config if user chose not to provide keys
+            delete config.CF_API_TOKEN;
+            delete config.CF_ZONE_ID;
+            console.log(chalk_1.default.yellow('\n☁️  No CF API key — agent will use Nginx/Apache deny rules behind Cloudflare.'));
+        }
+    }
+    else {
+        delete config.CF_API_TOKEN;
+        delete config.CF_ZONE_ID;
     }
     // Save System Info
     config.SYSTEM_INFO = sysInfo;

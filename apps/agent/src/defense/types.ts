@@ -5,6 +5,9 @@
 /** Actions the defense system can take */
 export type BlockAction = 'logged' | 'temp_block' | 'perm_block';
 
+/** The enforcement method used to block an IP */
+export type BlockMethod = 'iptables' | 'cloudflare_api' | 'nginx_deny' | 'apache_deny';
+
 /** Full record of a defense action */
 export interface BlockRecord {
     ip: string;
@@ -19,6 +22,8 @@ export interface BlockRecord {
     risk: string;
     source: string;
     expiresAt: number | null;  // null = permanent
+    blockMethod: BlockMethod;
+    cfRuleId?: string;         // Cloudflare rule ID for efficient unblock
 }
 
 /** Internal offense tracker entry */
