@@ -214,12 +214,23 @@ telegram.onCommand("stats", () => {
     telegram.sendMessage(msg);
 });
 telegram.onCommand("banned", () => {
-    const blocked = blocker.getBlockedIPs();
-    if (blocked.length === 0) {
+    const records = blocker.getBlockRecords();
+    if (records.length === 0) {
         telegram.sendMessage("✅ *No IPs currently blocked.*");
         return;
     }
-    const msg = `🚫 *Blocked IPs (${blocked.length})*\n\n` + blocked.map(ip => `• \`${ip}\``).join("\n");
+    const methodIcons = {
+        'cloudflare_api': '☁️',
+        'nginx_deny': '🌐',
+        'apache_deny': '🌐',
+        'iptables': '🔥',
+    };
+    const lines = records.map(r => {
+        const icon = methodIcons[r.blockMethod || 'iptables'] || '🔥';
+        const type = r.action === 'perm_block' ? '🔴 PERM' : '🟡 TEMP';
+        return `• \`${r.ip}\` ${icon} ${type}`;
+    });
+    const msg = `🚫 *Blocked IPs (${records.length})*\n\n` + lines.join("\n");
     telegram.sendMessage(msg);
 });
 telegram.onCommand("whitelist", (msg) => {

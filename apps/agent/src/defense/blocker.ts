@@ -476,6 +476,12 @@ export class Blocker {
                     if (!blockRecord.blockMethod) {
                         blockRecord.blockMethod = 'iptables';
                     }
+                    // Promote expired temp blocks to perm (survived a restart = keep blocked)
+                    if (blockRecord.expiresAt && blockRecord.expiresAt < Date.now()) {
+                        log(`[Blocker] ⬆️ Promoting expired temp block ${ip} → permanent (survived restart)`);
+                        blockRecord.action = 'perm_block';
+                        blockRecord.expiresAt = null;
+                    }
                     this.activeBlocks.set(ip, blockRecord);
                     if (!this._dryRun) {
                         this.executeBlock(ip, blockRecord.blockMethod, blockRecord.reason, blockRecord);
