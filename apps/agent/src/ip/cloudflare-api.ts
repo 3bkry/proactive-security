@@ -77,22 +77,21 @@ export class CloudflareBlocker {
             return;
         }
 
-        // 2. Find or create the IP list
+        // 2. Try to find or create the IP list (non-fatal if it fails)
         await this.findOrCreateList();
-        if (!this.listId) {
-            log('[CF-API] ❌ Cannot initialize — failed to create IP list.');
-            return;
+        if (this.listId) {
+            // 3. Load existing list items into cache
+            await this.loadListItems();
+
+            // 4. Ensure each zone has a WAF rule referencing the list
+            for (const zoneId of this.zoneIds) {
+                await this.ensureWAFRule(zoneId);
+            }
+            log(`[CF-API] ✅ Ready (IP List). ${this.itemCache.size} IPs in blocklist across ${this.zoneIds.length} zone(s).`);
+        } else {
+            log(`[CF-API] ⚠️ IP List unavailable — using individual access rules per zone instead.`);
+            log(`[CF-API] ✅ Ready (Access Rules). ${this.zoneIds.length} zone(s).`);
         }
-
-        // 3. Load existing list items into cache
-        await this.loadListItems();
-
-        // 4. Ensure each zone has a WAF rule referencing the list
-        for (const zoneId of this.zoneIds) {
-            await this.ensureWAFRule(zoneId);
-        }
-
-        log(`[CF-API] ✅ Ready. ${this.itemCache.size} IPs in blocklist across ${this.zoneIds.length} zone(s).`);
     }
 
     private async discoverAccountAndZones(): Promise<void> {
