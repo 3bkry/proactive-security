@@ -217,20 +217,6 @@ async function runSetup() {
             when: (answers) => answers.enableCloud,
             default: config.SENTINEL_AGENT_KEY || '',
         },
-        {
-            type: 'confirm',
-            name: 'enableTelegram',
-            message: chalk_1.default.yellow('Enable Telegram Notifications? (Ensure the Sentinel Agent is STOPPED first)'),
-            default: !!config.TELEGRAM_BOT_TOKEN
-        },
-        {
-            type: 'input',
-            name: 'telegramToken',
-            message: 'Enter Telegram Bot Token:',
-            when: (answers) => answers.enableTelegram,
-            default: config.TELEGRAM_BOT_TOKEN || '',
-            validate: (input) => input.length > 10 || 'Token seems too short.'
-        },
         // ── Cloudflare Configuration (Optional) ──────────────────
         {
             type: 'confirm',
@@ -258,6 +244,21 @@ async function runSetup() {
             when: (answers) => answers.behindCloudflare && answers.cfApiToken,
             default: config.CF_ZONE_ID || '',
             validate: (input) => input.length > 10 || 'Zone ID seems too short (check your Cloudflare dashboard).'
+        },
+        // ── Telegram (Last — blocks waiting for /start) ──────────
+        {
+            type: 'confirm',
+            name: 'enableTelegram',
+            message: chalk_1.default.yellow('Enable Telegram Notifications? (Ensure the Sentinel Agent is STOPPED first)'),
+            default: !!config.TELEGRAM_BOT_TOKEN
+        },
+        {
+            type: 'input',
+            name: 'telegramToken',
+            message: 'Enter Telegram Bot Token:',
+            when: (answers) => answers.enableTelegram,
+            default: config.TELEGRAM_BOT_TOKEN || '',
+            validate: (input) => input.length > 10 || 'Token seems too short.'
         },
     ];
     const answers = await inquirer_1.default.prompt(questions);
