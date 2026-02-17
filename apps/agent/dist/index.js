@@ -80,10 +80,14 @@ if (fs.existsSync(CONFIG_FILE)) {
             defenseConfig = config.defense;
         if (config.TRUSTED_PROXIES)
             setTrustedProxies(config.TRUSTED_PROXIES);
-        // Cloudflare API config (optional)
-        if (config.CF_API_TOKEN && config.CF_ZONE_ID) {
+        // Cloudflare API config (optional — supports Global Key or API Token)
+        if (config.CF_API_KEY && config.CF_EMAIL) {
+            cfAPIConfig = { apiKey: config.CF_API_KEY, email: config.CF_EMAIL };
+            log("[Config] ☁️ Cloudflare Global API Key configured — zones auto-discovered.");
+        }
+        else if (config.CF_API_TOKEN && config.CF_ZONE_ID) {
             cfAPIConfig = { apiToken: config.CF_API_TOKEN, zoneId: config.CF_ZONE_ID };
-            log("[Config] ☁️ Cloudflare API blocking configured.");
+            log("[Config] ☁️ Cloudflare API Token configured.");
         }
     }
     catch (e) { /* ok */ }

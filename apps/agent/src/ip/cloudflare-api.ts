@@ -1,29 +1,24 @@
 /**
  * Cloudflare API Client — Block/Unblock IPs via CF Access Rules
  *
- * Uses the Cloudflare API v4 to create/delete IP access rules.
- * This is the preferred blocking method when the server is behind Cloudflare,
- * as iptables cannot block real client IPs (packets come from CF proxy IPs).
+ * Supports two authentication methods:
+ *  1. Global API Key + Email (simpler — auto-discovers zones)
+ *  2. API Token + Zone ID (scoped, recommended for production)
  *
- * Requires: CF_API_TOKEN + CF_ZONE_ID in config.
+ * With Global API Key, the agent calls GET /zones to discover all zone IDs
+ * automatically, so the user only needs to provide their key and email.
  */
 
 import * as https from 'https';
 import { log } from '@sentinel/core';
 
 export interface CloudflareAPIConfig {
-    apiToken: string;
-    zoneId: string;
-}
-
-interface CFAccessRule {
-    id: string;
-    mode: string;
-    notes: string;
-    configuration: {
-        target: string;
-        value: string;
-    };
+    // Option 1: Global API Key (simpler setup — no zone ID needed)
+    apiKey?: string;
+    email?: string;
+    // Option 2: API Token (scoped, requires zone ID)
+    apiToken?: string;
+    zoneId?: string;
 }
 
 interface CFAPIResponse {
@@ -34,33 +29,90 @@ interface CFAPIResponse {
 }
 
 export class CloudflareBlocker {
-    private apiToken: string;
-    private zoneId: string;
-    // Cache of ruleId → IP for fast unblock
+    private authHeaders: Record<string, string>;
+    private zoneIds: string[] = [];
     private ruleCache: Map<string, string> = new Map(); // ip → ruleId
+    private ready: Promise<void>;
 
     constructor(config: CloudflareAPIConfig) {
-        this.apiToken = config.apiToken;
-        this.zoneId = config.zoneId;
-        log('[CF-API] Cloudflare API blocking initialized.');
+        // Determine auth method
+        if (config.apiKey && config.email) {
+            this.authHeaders = {
+                'X-Auth-Key': config.apiKey,
+                'X-Auth-Email': config.email,
+                'Content-Type': 'application/json',
+            };
+            if (config.zoneId) {
+                this.zoneIds = [config.zoneId];
+            }
+            log('[CF-API] Using Global API Key authentication.');
+        } else if (config.apiToken) {
+            this.authHeaders = {
+                'Authorization': `Bearer ${config.apiToken}`,
+                'Content-Type': 'application/json',
+            };
+            if (config.zoneId) {
+                this.zoneIds = [config.zoneId];
+            }
+            log('[CF-API] Using API Token authentication.');
+        } else {
+            this.authHeaders = {};
+            log('[CF-API] ❌ No valid credentials provided.');
+        }
+
+        // Auto-discover zones if none provided
+        this.ready = this.init();
+    }
+
+    private async init(): Promise<void> {
+        if (this.zoneIds.length === 0) {
+            await this.discoverZones();
+        }
+        if (this.zoneIds.length > 0) {
+            log(`[CF-API] ✅ Ready. Managing ${this.zoneIds.length} zone(s).`);
+        } else {
+            log('[CF-API] ❌ No zones found. Cloudflare API blocking will not work.');
+        }
+    }
+
+    /**
+     * Auto-discover all zones accessible with the current credentials.
+     */
+    private async discoverZones(): Promise<void> {
+        try {
+            log('[CF-API] Auto-discovering zones...');
+            const response = await this.apiRequest('GET', '/zones?per_page=50&status=active');
+
+            if (response.success && response.result?.length > 0) {
+                this.zoneIds = response.result.map((z: any) => z.id);
+                const names = response.result.map((z: any) => z.name).join(', ');
+                log(`[CF-API] Found ${this.zoneIds.length} zone(s): ${names}`);
+            } else {
+                log(`[CF-API] ⚠️ No zones found: ${JSON.stringify(response.errors || [])}`);
+            }
+        } catch (e) {
+            log(`[CF-API] ❌ Zone discovery failed: ${e}`);
+        }
     }
 
     /**
      * Block an IP via Cloudflare Access Rules.
-     * Returns the rule ID on success, or null on failure.
+     * Creates the rule on the first zone (account-level blocking uses any zone).
      */
     async blockIP(ip: string, reason: string): Promise<string | null> {
+        await this.ready;
+        if (this.zoneIds.length === 0) return null;
+
+        const zoneId = this.zoneIds[0];
+
         try {
             const body = JSON.stringify({
                 mode: 'block',
-                configuration: {
-                    target: 'ip',
-                    value: ip,
-                },
+                configuration: { target: 'ip', value: ip },
                 notes: `SentinelAI: ${reason} (${new Date().toISOString()})`,
             });
 
-            const response = await this.apiRequest('POST', `/zones/${this.zoneId}/firewall/access_rules/rules`, body);
+            const response = await this.apiRequest('POST', `/zones/${zoneId}/firewall/access_rules/rules`, body);
 
             if (response.success && response.result?.id) {
                 const ruleId = response.result.id;
@@ -69,7 +121,6 @@ export class CloudflareBlocker {
                 return ruleId;
             }
 
-            // Check if already blocked
             if (response.errors?.some((e: any) => e.message?.includes('already exists'))) {
                 log(`[CF-API] ℹ️ ${ip} is already blocked in Cloudflare.`);
                 return 'existing';
@@ -87,12 +138,13 @@ export class CloudflareBlocker {
      * Unblock an IP by finding and deleting its access rule.
      */
     async unblockIP(ip: string): Promise<boolean> {
+        await this.ready;
+        if (this.zoneIds.length === 0) return false;
+
         try {
-            // Try cached rule ID first
             let ruleId = this.ruleCache.get(ip);
 
             if (!ruleId || ruleId === 'existing') {
-                // Search for the rule
                 const foundId = await this.findRuleByIP(ip);
                 if (!foundId) {
                     log(`[CF-API] ℹ️ No block rule found for ${ip} in Cloudflare.`);
@@ -101,9 +153,10 @@ export class CloudflareBlocker {
                 ruleId = foundId;
             }
 
+            const zoneId = this.zoneIds[0];
             const response = await this.apiRequest(
                 'DELETE',
-                `/zones/${this.zoneId}/firewall/access_rules/rules/${ruleId}`
+                `/zones/${zoneId}/firewall/access_rules/rules/${ruleId}`
             );
 
             if (response.success) {
@@ -120,16 +173,13 @@ export class CloudflareBlocker {
         }
     }
 
-    /**
-     * Find a block rule for a specific IP.
-     */
     private async findRuleByIP(ip: string): Promise<string | null> {
+        const zoneId = this.zoneIds[0];
         try {
             const response = await this.apiRequest(
                 'GET',
-                `/zones/${this.zoneId}/firewall/access_rules/rules?configuration.value=${ip}&mode=block&page=1&per_page=20`
+                `/zones/${zoneId}/firewall/access_rules/rules?configuration.value=${ip}&mode=block&page=1&per_page=20`
             );
-
             if (response.success && response.result?.length > 0) {
                 return response.result[0].id;
             }
@@ -140,64 +190,43 @@ export class CloudflareBlocker {
         }
     }
 
-    /**
-     * List all blocked IPs in Cloudflare (SentinelAI-created rules).
-     */
     async listBlocked(): Promise<Array<{ ip: string; ruleId: string; notes: string }>> {
+        await this.ready;
+        if (this.zoneIds.length === 0) return [];
+
         const blocked: Array<{ ip: string; ruleId: string; notes: string }> = [];
+        const zoneId = this.zoneIds[0];
         let page = 1;
-        const maxPages = 10;
 
         try {
-            while (page <= maxPages) {
+            while (page <= 10) {
                 const response = await this.apiRequest(
                     'GET',
-                    `/zones/${this.zoneId}/firewall/access_rules/rules?mode=block&page=${page}&per_page=50`
+                    `/zones/${zoneId}/firewall/access_rules/rules?mode=block&page=${page}&per_page=50`
                 );
-
                 if (!response.success || !response.result?.length) break;
 
                 for (const rule of response.result) {
                     if (rule.configuration?.target === 'ip') {
-                        blocked.push({
-                            ip: rule.configuration.value,
-                            ruleId: rule.id,
-                            notes: rule.notes || '',
-                        });
-                        // Update cache
+                        blocked.push({ ip: rule.configuration.value, ruleId: rule.id, notes: rule.notes || '' });
                         this.ruleCache.set(rule.configuration.value, rule.id);
                     }
                 }
-
                 if (!response.result_info || page >= response.result_info.total_pages) break;
                 page++;
             }
         } catch (e) {
             log(`[CF-API] ⚠️ Error listing blocked IPs: ${e}`);
         }
-
         return blocked;
     }
 
-    /**
-     * Test API connectivity.
-     */
     async testConnection(): Promise<boolean> {
-        try {
-            const response = await this.apiRequest('GET', `/zones/${this.zoneId}`);
-            if (response.success) {
-                log(`[CF-API] ✅ Connected to Cloudflare zone: ${response.result?.name || this.zoneId}`);
-                return true;
-            }
-            log(`[CF-API] ❌ Connection test failed: ${JSON.stringify(response.errors)}`);
-            return false;
-        } catch (e) {
-            log(`[CF-API] ❌ Connection test error: ${e}`);
-            return false;
-        }
+        await this.ready;
+        return this.zoneIds.length > 0;
     }
 
-    // ── HTTP Request Helper ──────────────────────────────────────────
+    // ── HTTP Helper ──────────────────────────────────────────────
 
     private apiRequest(method: string, path: string, body?: string): Promise<CFAPIResponse> {
         return new Promise((resolve, reject) => {
@@ -206,10 +235,7 @@ export class CloudflareBlocker {
                 port: 443,
                 path: `/client/v4${path}`,
                 method,
-                headers: {
-                    'Authorization': `Bearer ${this.apiToken}`,
-                    'Content-Type': 'application/json',
-                },
+                headers: { ...this.authHeaders },
                 timeout: 15000,
             };
 

@@ -222,28 +222,28 @@ export async function runSetup() {
             type: 'confirm',
             name: 'behindCloudflare',
             message: chalk.yellow('Are you behind Cloudflare? (Enables smart IP blocking)'),
-            default: !!config.CF_API_TOKEN || !!config.CF_ZONE_ID
+            default: !!config.CF_API_KEY || !!config.CF_API_TOKEN
         },
         {
             type: 'input',
-            name: 'cfApiToken',
+            name: 'cfApiKey',
             message: (answers: any) => {
-                console.log(chalk.cyan('\n☁️  Cloudflare API Token allows global IP blocking.'));
-                console.log(chalk.cyan('   Create one at: https://dash.cloudflare.com/profile/api-tokens'));
-                console.log(chalk.cyan('   Required permissions: Account > Account Firewall Access Rules > Edit'));
+                console.log(chalk.cyan('\n☁️  Cloudflare Global API Key enables automatic IP blocking.'));
+                console.log(chalk.cyan('   Find it at: https://dash.cloudflare.com/profile/api-tokens → Global API Key'));
+                console.log(chalk.dim('   Zones are auto-discovered — no Zone ID needed.'));
                 console.log(chalk.dim('   Leave blank to use Nginx/Apache deny rules as fallback.\n'));
-                return 'Enter Cloudflare API Token (optional):';
+                return 'Enter Cloudflare Global API Key (optional):';
             },
             when: (answers: any) => answers.behindCloudflare,
-            default: config.CF_API_TOKEN || '',
+            default: config.CF_API_KEY || '',
         },
         {
             type: 'input',
-            name: 'cfZoneId',
-            message: 'Enter Cloudflare Zone ID (found on your domain\'s overview page):',
-            when: (answers: any) => answers.behindCloudflare && answers.cfApiToken,
-            default: config.CF_ZONE_ID || '',
-            validate: (input: string) => input.length > 10 || 'Zone ID seems too short (check your Cloudflare dashboard).'
+            name: 'cfEmail',
+            message: 'Enter your Cloudflare account email:',
+            when: (answers: any) => answers.behindCloudflare && answers.cfApiKey,
+            default: config.CF_EMAIL || '',
+            validate: (input: string) => input.includes('@') || 'Please enter a valid email address.'
         },
         // ── Telegram (Last — blocks waiting for /start) ──────────
         {
@@ -324,17 +324,23 @@ export async function runSetup() {
 
     // Cloudflare API Configuration
     if (answers.behindCloudflare) {
-        if (answers.cfApiToken && answers.cfZoneId) {
-            config.CF_API_TOKEN = answers.cfApiToken;
-            config.CF_ZONE_ID = answers.cfZoneId;
-            console.log(chalk.green('\n☁️  Cloudflare API blocking configured — attackers will be blocked globally.'));
-        } else {
-            // Remove any old CF config if user chose not to provide keys
+        if (answers.cfApiKey && answers.cfEmail) {
+            config.CF_API_KEY = answers.cfApiKey;
+            config.CF_EMAIL = answers.cfEmail;
+            // Clean up old token-based config if present
             delete config.CF_API_TOKEN;
             delete config.CF_ZONE_ID;
-            console.log(chalk.yellow('\n☁️  No CF API key — agent will use Nginx/Apache deny rules behind Cloudflare.'));
+            console.log(chalk.green('\n☁️  Cloudflare API blocking configured — zones will be auto-discovered.'));
+        } else {
+            delete config.CF_API_KEY;
+            delete config.CF_EMAIL;
+            delete config.CF_API_TOKEN;
+            delete config.CF_ZONE_ID;
+            console.log(chalk.yellow('\n☁️  No CF API key — will use Nginx/Apache deny rules behind Cloudflare.'));
         }
     } else {
+        delete config.CF_API_KEY;
+        delete config.CF_EMAIL;
         delete config.CF_API_TOKEN;
         delete config.CF_ZONE_ID;
     }
