@@ -76,32 +76,35 @@ export class TelegramNotifier {
                     log("[Telegram] Initialized successfully with polling.");
 
                     this.bot.on('callback_query', async (query) => {
-                        const action = query.data;
-                        if (!action || !this.blocker) return;
+                        try {
+                            const action = query.data;
+                            if (!action || !this.blocker) return;
 
-                        if (action.startsWith('ban_')) {
-                            const ip = action.split('_')[1];
-                            await this.blocker.evaluate({ ip, realIP: ip, proxyIP: null, userAgent: null, endpoint: null, method: null, risk: 'HIGH', reason: 'Manual Ban via Telegram', source: 'telegram', immediate: true });
+                            if (action.startsWith('ban_')) {
+                                const ip = action.split('_')[1];
+                                await this.blocker.evaluate({ ip, realIP: ip, proxyIP: null, userAgent: null, endpoint: null, method: null, risk: 'HIGH', reason: 'Manual Ban via Telegram', source: 'telegram', immediate: true });
 
-                            // Acknowledge logic
-                            if (query.id) {
-                                this.bot?.answerCallbackQuery(query.id, { text: `IP ${ip} Banned!` });
-                                const opts: TelegramBot.SendMessageOptions = {
-                                    parse_mode: 'Markdown',
-                                    reply_markup: {
-                                        inline_keyboard: [[{ text: `🔓 Unban ${ip}`, callback_data: `unban_${ip}` }]]
-                                    }
-                                };
-                                this.sendToChat(query.message!.chat.id, `🚫 **IP BANNED MANUALLY:** ${ip}`, opts);
+                                if (query.id) {
+                                    this.bot?.answerCallbackQuery(query.id, { text: `IP ${ip} Banned!` }).catch(() => { });
+                                    const opts: TelegramBot.SendMessageOptions = {
+                                        parse_mode: 'Markdown',
+                                        reply_markup: {
+                                            inline_keyboard: [[{ text: `🔓 Unban ${ip}`, callback_data: `unban_${ip}` }]]
+                                        }
+                                    };
+                                    this.sendToChat(query.message!.chat.id, `🚫 **IP BANNED MANUALLY:** ${ip}`, opts);
+                                }
+                            } else if (action.startsWith('unban_')) {
+                                const ip = action.split('_')[1];
+                                await this.blocker.unblock(ip);
+
+                                if (query.id) {
+                                    this.bot?.answerCallbackQuery(query.id, { text: `IP ${ip} Unbanned!` }).catch(() => { });
+                                    this.sendToChat(query.message!.chat.id, `✅ **IP UNBANNED:** ${ip}`, { parse_mode: 'Markdown' });
+                                }
                             }
-                        } else if (action.startsWith('unban_')) {
-                            const ip = action.split('_')[1];
-                            await this.blocker.unblock(ip);
-
-                            if (query.id) {
-                                this.bot?.answerCallbackQuery(query.id, { text: `IP ${ip} Unbanned!` });
-                                this.sendToChat(query.message!.chat.id, `✅ **IP UNBANNED:** ${ip}`, { parse_mode: 'Markdown' });
-                            }
+                        } catch (e: any) {
+                            log(`[Telegram] ⚠️ Callback error (safe to ignore): ${e.message}`);
                         }
                     });
 
