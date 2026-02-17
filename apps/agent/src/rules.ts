@@ -112,7 +112,9 @@ export class OWASPScanner {
         {
             category: "A05:2025-Injection (OS Command)",
             risk: "HIGH",
-            pattern: /(;|\|\||&&|`|\$\().*(sh|bash|curl|wget|nc|python|perl|php|rm|cat|ls|whoami|ifconfig|netstat|nmap)/i,
+            // Require shell operators followed by whitespace/path context + whole-word command names
+            // Avoids FP like "compatible; Bytespider; bytedance.com" matching ; + nc
+            pattern: /(;|\|\||&&|`|\$\()\s*(\/[\w\/]+\/|sudo\s+|env\s+)?\b(sh|bash|curl|wget|nc|ncat|python\d?|perl|php|ruby|rm|cat|ls|whoami|ifconfig|netstat|nmap|passwd|chmod|chown|useradd|mkfifo|telnet|socat)\b/i,
             summary: "OS command injection attempt",
             confidence: "HIGH"
         },
