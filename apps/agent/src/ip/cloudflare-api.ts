@@ -259,25 +259,35 @@ export class CloudflareBlocker {
     async blockIP(ip: string, reason: string): Promise<string | null> {
         await this.ready;
 
-        // If we have an IP list, add to it
+        // 1. Try IP List first
         if (this.listId && this.accountId) {
-            return this.addToList(ip, reason);
+            const listId = await this.addToList(ip, reason);
+            if (listId) return listId;
+            log(`[CF-API] ⚠️ Failed to add to list, falling back to individual access rules.`);
         }
 
-        // Fallback: individual access rules
+        // 2. Fallback: individual access rules
         return this.blockViaAccessRule(ip, reason);
     }
 
     async unblockIP(ip: string): Promise<boolean> {
         await this.ready;
 
-        // If we have an IP list, remove from it
+        let unblocked = false;
+
+        // 1. Try removing from IP List
         if (this.listId && this.accountId) {
-            return this.removeFromList(ip);
+            const listSuccess = await this.removeFromList(ip);
+            if (listSuccess) unblocked = true;
         }
 
-        // Fallback: individual access rules
-        return this.unblockViaAccessRule(ip);
+        // 2. ALWAYS try removing from Access Rules (cleanup old/fallback blocks)
+        // This ensures we catch IPs that were blocked before IP Lists were active
+        // or during fallback mode.
+        const ruleSuccess = await this.unblockViaAccessRule(ip);
+        if (ruleSuccess) unblocked = true;
+
+        return unblocked;
     }
 
     // ── IP List Operations ──────────────────────────────────────
