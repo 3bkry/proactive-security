@@ -91,7 +91,9 @@ export class OWASPScanner {
         {
             category: "A05:2025-Injection (SQLi)",
             risk: "HIGH",
-            pattern: /union\s+all\s+select|select\s+.*from|sleep\(|benchmark\(|waitfor\s+delay|pg_sleep|load_file\(|into\s+outfile|' OR '1'='1|--|#|\/\*|information_schema|syscolumns|sysobjects/i,
+            // Fixed: bare -- and # caused FPs on normal error log text.
+            // Now requires SQL context: quotes/parens before comments, whole keywords.
+            pattern: /union\s+(all\s+)?select|select\s+[\w*].*\bfrom\b|sleep\s*\(|benchmark\s*\(|waitfor\s+delay|pg_sleep|load_file\s*\(|into\s+outfile|'\s*(OR|AND)\s+'?\d|'\s*--|'\s*#|'\s*\/\*|;\s*--|information_schema|syscolumns|sysobjects/i,
             summary: "SQL injection attempt (classic or time-based)",
             confidence: "HIGH"
         },

@@ -52,14 +52,21 @@ export class LogWatcher extends EventEmitter {
             });
     }
 
-    public add(path: string): boolean {
+    public add(filePath: string): boolean {
+        // Skip error logs — they produce too many false positives
+        const basename = path.basename(filePath);
+        if (/error[._-]?log/i.test(basename) || basename === 'error_log') {
+            log(`[Watcher] ⚠️ Skipping error log (high false-positive rate): ${filePath}`);
+            return false;
+        }
+
         try {
-            if (fs.existsSync(path)) {
-                const stats = fs.statSync(path);
+            if (fs.existsSync(filePath)) {
+                const stats = fs.statSync(filePath);
                 const maxSize = 10 * 1024 * 1024; // 10MB (Reduced from 20MB)
                 if (stats.size > maxSize) {
-                    log(`[Watcher] ⚠️ Skipping large file (>10MB): ${path}`);
-                    this.emit("file_too_large", path, stats.size);
+                    log(`[Watcher] ⚠️ Skipping large file (>10MB): ${filePath}`);
+                    this.emit("file_too_large", filePath, stats.size);
                     return false;
                 }
             }
@@ -67,14 +74,14 @@ export class LogWatcher extends EventEmitter {
             return false;
         }
 
-        this.watcher.add(path);
-        log(`Watching: ${path}`);
+        this.watcher.add(filePath);
+        log(`Watching: ${filePath}`);
         return true;
     }
 
-    public remove(path: string) {
-        this.watcher.unwatch(path);
-        // log(`Unwatched: ${path}`);
+    public remove(filePath: string) {
+        this.watcher.unwatch(filePath);
+        // log(`Unwatched: ${filePath}`);
     }
 
     public getWatchedFiles(): string[] {
