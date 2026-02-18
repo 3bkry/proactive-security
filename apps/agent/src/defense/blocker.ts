@@ -211,11 +211,16 @@ export class Blocker {
         let action: BlockAction;
 
         if (immediate || risk === 'CRITICAL' || risk === 'HIGH') {
-            // High severity → immediate block
+            // Determine action severity
             const tempCount = this.tempBlockCounts.get(realIP) || 0;
-            if (risk === 'CRITICAL' || tempCount >= this.config.permBlockAfterTempBlocks) {
+            if (risk === 'CRITICAL') {
+                // CRITICAL = always permanent (e.g. known exploit payloads)
+                action = 'perm_block';
+            } else if (tempCount >= this.config.permBlockAfterTempBlocks) {
+                // Repeated offender → escalate to permanent
                 action = 'perm_block';
             } else {
+                // HIGH / immediate → temp block first
                 action = 'temp_block';
                 this.tempBlockCounts.set(realIP, tempCount + 1);
             }

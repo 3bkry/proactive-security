@@ -68,8 +68,8 @@ export const DEFAULT_DEFENSE_CONFIG: DefenseConfig = {
     offenseWindowSec: 60,
     permBlockAfterTempBlocks: 3,
 
-    rateLimit_requestsPerSec: 50,
-    rateLimit_uniqueEndpoints: 30,
+    rateLimit_requestsPerSec: 100,
+    rateLimit_uniqueEndpoints: 150,
     rateLimit_errorRatePercent: 80,
     rateLimit_windowSec: 30,
 
