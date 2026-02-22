@@ -29,6 +29,12 @@ class SentinelDB {
         timestamp TEXT,
         raw TEXT
       );
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS log_index USING fts5(
+        content,
+        source UNINDEXED,
+        timestamp UNINDEXED
+      );
     `);
     }
     saveThreat(threat) {
@@ -50,6 +56,22 @@ class SentinelDB {
             ...event,
             timestamp: event.timestamp.toISOString(),
         });
+    }
+    indexLog(line, source) {
+        const stmt = this.db.prepare(`
+            INSERT INTO log_index (content, source, timestamp)
+            VALUES (?, ?, ?)
+        `);
+        stmt.run(line, source, new Date().toISOString());
+    }
+    searchLogs(query, limit = 50) {
+        const stmt = this.db.prepare(`
+            SELECT * FROM log_index 
+            WHERE content MATCH ? 
+            ORDER BY rowid DESC 
+            LIMIT ?
+        `);
+        return stmt.all(query, limit);
     }
     getThreats(limit = 10) {
         const stmt = this.db.prepare("SELECT * FROM threats ORDER BY timestamp DESC LIMIT ?");

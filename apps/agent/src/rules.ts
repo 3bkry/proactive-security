@@ -212,6 +212,13 @@ export class OWASPScanner {
 
     public static scan(rawLine: string): OWASPMatch[] {
         if (!rawLine) return [];
+
+        // Fast Path: If the line doesn't contain any traditional exploit delivery characters, skip regex.
+        // This avoids overhead for 90%+ of normal log lines (e.g. standard static assets or clean GETs).
+        if (!/[{}$'"<>;|&`\(\)\[\]]/.test(rawLine)) {
+            return [];
+        }
+
         try {
             // Normalize: URL Decoding + Null-byte removal
             const line = decodeURIComponent(rawLine.toLowerCase().replace(/\0/g, ""));

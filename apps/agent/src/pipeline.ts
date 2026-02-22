@@ -8,7 +8,7 @@
  * This replaces the monolithic handleLogLine() from index.ts.
  */
 
-import { log } from '@sentinel/core';
+import { log, SentinelDB } from '@sentinel/core';
 import { WebSocketServer, WebSocket } from 'ws';
 import { resolveRealIP, extractSimpleIP, type ResolvedIP } from './ip/resolver.js';
 import { isCloudflareIP } from './ip/cloudflare.js';
@@ -96,6 +96,7 @@ export interface PipelineConfig {
     telegram: TelegramNotifier;
     wss: WebSocketServer;
     cloudClient: any;  // Optional CloudClient
+    db: SentinelDB;
     isSafeMode: boolean;
     isWarmingUp: boolean;
 }
@@ -116,7 +117,7 @@ export function updatePipelineFlags(flags: { isSafeMode?: boolean; isWarmingUp?:
 
 export async function processLogLine(line: string, filePath: string): Promise<void> {
     if (!pipelineConfig) return;
-    const { blocker, rateLimiter, aiManager, telegram, wss, cloudClient, isSafeMode, isWarmingUp } = pipelineConfig;
+    const { blocker, rateLimiter, aiManager, telegram, wss, cloudClient, db, isSafeMode, isWarmingUp } = pipelineConfig;
 
     try {
         const settings = getSettings(filePath);
@@ -127,6 +128,9 @@ export async function processLogLine(line: string, filePath: string): Promise<vo
 
         // ── Stage 1: Noise Filter ──
         if (isNoisy(trimmed)) return;
+
+        // ── Stage 1.5: FTS5 Indexing ──
+        db.indexLog(trimmed, filePath);
 
         // ── Stage 2: IP Resolution ──
         const isHttpLog = filePath.includes('access') || filePath.includes('nginx') || filePath.includes('apache') || filePath.includes('httpd');
@@ -228,6 +232,15 @@ export async function processLogLine(line: string, filePath: string): Promise<vo
                     summary: 'Detected repeated authentication failure (Local Rule)',
                     ip: realIP,
                     action: 'Ban IP if repeated',
+                    tokens: 0,
+                    usage: { totalTokens: aiManager.totalTokens, totalCost: aiManager.totalCost, requestCount: aiManager.requestCount },
+                };
+            } else if (/Accepted (?:password|publickey|none) for root/i.test(trimmed)) {
+                result = {
+                    risk: 'CRITICAL',
+                    summary: '🚨 SUCCESSFUL ROOT LOGIN',
+                    ip: realIP,
+                    action: 'Monitor',
                     tokens: 0,
                     usage: { totalTokens: aiManager.totalTokens, totalCost: aiManager.totalCost, requestCount: aiManager.requestCount },
                 };

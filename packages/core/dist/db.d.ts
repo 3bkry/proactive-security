@@ -5,5 +5,7 @@ export declare class SentinelDB {
     private initialize;
     saveThreat(threat: Threat): void;
     saveEvent(event: LogEvent): void;
+    indexLog(line: string, source: string): void;
+    searchLogs(query: string, limit?: number): any[];
     getThreats(limit?: number): Threat[];
 }

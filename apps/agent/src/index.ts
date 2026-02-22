@@ -23,6 +23,8 @@ import {
     getSystemStats,
     CONFIG_FILE,
     STATE_FILE,
+    SENTINEL_DATA_DIR,
+    SentinelDB,
 } from '@sentinel/core';
 import { Blocker } from "./defense/blocker.js";
 import { RateLimiter } from "./defense/rate-limiter.js";
@@ -110,6 +112,8 @@ const rateLimiter = new RateLimiter(defenseConfig);
 const telegram = new TelegramNotifier(blocker as any); // Blocker has compatible API
 const heartbeat = new HeartbeatService(wss);
 const monitor = new ResourceMonitor(telegram);
+const dbPath = path.join(SENTINEL_DATA_DIR, 'sentinel.db');
+const db = new SentinelDB(dbPath);
 
 // ── Initialize Cloudflare Ranges ─────────────────────────────────
 await initCloudflareRanges();
@@ -201,6 +205,7 @@ initPipeline({
     telegram,
     wss,
     cloudClient,
+    db,
     isSafeMode,
     isWarmingUp,
 });

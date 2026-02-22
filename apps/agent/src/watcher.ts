@@ -13,7 +13,6 @@ export class LogWatcher extends EventEmitter {
         this.watcher = chokidar.watch([], {
             persistent: true,
             ignoreInitial: true,
-            usePolling: true,
             depth: 2, // Hard limit on recursion depth
             ignored: [
                 /(^|[\/\\])\../, // Dotfiles
