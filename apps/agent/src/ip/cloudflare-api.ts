@@ -401,12 +401,13 @@ export class CloudflareBlocker {
                     `/zones/${zoneId}/firewall/access_rules/rules?configuration.value=${ip}&mode=block&page=1&per_page=5`
                 );
                 if (response && response.success && response.result?.length > 0) {
-                    const ruleId = response.result[0].id;
-                    const delResponse = await this.throttledRequest(
-                        'DELETE',
-                        `/zones/${zoneId}/firewall/access_rules/rules/${ruleId}`
-                    );
-                    if (delResponse && delResponse.success) unblocked = true;
+                    for (const rule of response.result) {
+                        const delResponse = await this.throttledRequest(
+                            'DELETE',
+                            `/zones/${zoneId}/firewall/access_rules/rules/${rule.id}`
+                        );
+                        if (delResponse && delResponse.success) unblocked = true;
+                    }
                 }
             } catch (e) {
                 log(`[CF-API] ⚠️ Error unblocking via access rule in zone ${zoneId.substring(0, 8)}…: ${e}`);

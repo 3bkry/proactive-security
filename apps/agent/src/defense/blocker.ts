@@ -425,10 +425,13 @@ export class Blocker {
             }
 
             // Always remove iptables too (was always added alongside)
-            exec(`iptables -D INPUT -s ${ip} -j DROP 2>/dev/null; iptables -D DOCKER-USER -s ${ip} -j DROP 2>/dev/null`,
-                (error: Error | null) => {
-                    if (error) log(`[Blocker] ⚠️ iptables unblock note for ${ip}: ${error.message}`);
-                });
+            // Use a while loop to handle duplicate rules that might have been added due to race conditions
+            const iptablesCmd = `while sudo iptables -D INPUT -s ${ip} -j DROP 2>/dev/null; do :; done; while sudo iptables -D DOCKER-USER -s ${ip} -j DROP 2>/dev/null; do :; done`;
+            exec(iptablesCmd, (error: Error | null) => {
+                if (error && !error.message.includes('No chain/target/match by that name')) {
+                    log(`[Blocker] ⚠️ iptables unblock note for ${ip}: ${error.message}`);
+                }
+            });
         } else {
             log(`[Blocker] 🔶 DRY RUN: Would unblock ${ip} via ${method} — skipping`);
         }
