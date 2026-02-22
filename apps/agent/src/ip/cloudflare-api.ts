@@ -400,15 +400,17 @@ export class CloudflareBlocker {
                     'GET',
                     `/zones/${zoneId}/firewall/access_rules/rules?configuration.value=${ip}&mode=block&page=1&per_page=5`
                 );
-                if (response.success && response.result?.length > 0) {
+                if (response && response.success && response.result?.length > 0) {
                     const ruleId = response.result[0].id;
                     const delResponse = await this.throttledRequest(
                         'DELETE',
                         `/zones/${zoneId}/firewall/access_rules/rules/${ruleId}`
                     );
-                    if (delResponse.success) unblocked = true;
+                    if (delResponse && delResponse.success) unblocked = true;
                 }
-            } catch { /* skip zone */ }
+            } catch (e) {
+                log(`[CF-API] ⚠️ Error unblocking via access rule in zone ${zoneId.substring(0, 8)}…: ${e}`);
+            }
         }
 
         if (unblocked) log(`[CF-API] ✅ Unblocked ${ip} via access rules`);
@@ -451,7 +453,7 @@ export class CloudflareBlocker {
     // ── HTTP Helper ──────────────────────────────────────────────
 
     private apiRequest(method: string, path: string, body?: string): Promise<CFAPIResponse> {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             const options: https.RequestOptions = {
                 hostname: 'api.cloudflare.com',
                 port: 443,
@@ -472,13 +474,33 @@ export class CloudflareBlocker {
                     try {
                         resolve(JSON.parse(data));
                     } catch (e) {
-                        reject(new Error(`Invalid JSON response: ${data.substring(0, 200)}`));
+                        resolve({
+                            success: false,
+                            errors: [{ code: 0, message: `Invalid JSON response: ${data.substring(0, 200)}` }],
+                            result: null
+                        });
                     }
                 });
             });
 
-            req.on('error', reject);
-            req.on('timeout', () => { req.destroy(); reject(new Error('Request timeout')); });
+            req.on('error', (err) => {
+                log(`[CF-API] ❌ Connection error (${method} ${path}): ${err.message}`);
+                resolve({
+                    success: false,
+                    errors: [{ code: 0, message: err.message }],
+                    result: null
+                });
+            });
+
+            req.on('timeout', () => {
+                log(`[CF-API] ❌ Request timeout (${method} ${path})`);
+                req.destroy();
+                resolve({
+                    success: false,
+                    errors: [{ code: 0, message: 'Request timeout' }],
+                    result: null
+                });
+            });
 
             if (body) req.write(body);
             req.end();

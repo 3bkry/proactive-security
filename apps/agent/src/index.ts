@@ -12,6 +12,15 @@
  */
 
 import "dotenv/config";
+import { log } from '@sentinel/core';
+
+// ── Global Safety Net ───────────────────────────────────────────
+// Prevent the agent from exiting on unhandled promise rejections
+// (e.g. transient network timeouts in third-party libraries).
+process.on('unhandledRejection', (reason, promise) => {
+    log(`[Sentinel] ⚠️ UNHANDLED REJECTION: ${reason}`);
+});
+
 import { WebSocketServer, WebSocket } from "ws";
 import * as fs from 'fs';
 import os from 'os';
@@ -19,7 +28,6 @@ import path from 'path';
 import { LogWatcher } from "./watcher.js";
 import { AIManager } from "./ai.js";
 import {
-    log,
     getSystemStats,
     CONFIG_FILE,
     STATE_FILE,
