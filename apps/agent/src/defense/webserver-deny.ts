@@ -30,16 +30,21 @@ export function detectWebServer(): WebServerType {
             return 'nginx';
         } catch { /* not found */ }
 
+        // Fallback to absolute paths for Nginx
+        if (fs.existsSync('/usr/sbin/nginx') || fs.existsSync('/usr/local/nginx/sbin/nginx')) {
+            return 'nginx';
+        }
+
         // Check Apache
         try {
             execSync('command -v apache2', { stdio: 'pipe' });
             return 'apache';
         } catch { /* not found */ }
 
-        try {
-            execSync('command -v httpd', { stdio: 'pipe' });
+        // Fallback to absolute paths for Apache
+        if (fs.existsSync('/usr/sbin/apache2') || fs.existsSync('/usr/sbin/httpd')) {
             return 'apache';
-        } catch { /* not found */ }
+        }
 
         return null;
     } catch {
