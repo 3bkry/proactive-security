@@ -122,7 +122,13 @@ echo ""
 # 4. Install & Build
 # ─────────────────────────────────────────────────────────────
 echo -e "${GREEN}📦 Installing packages...${NC}"
-npm install --production=false 2>&1 | tail -1
+
+# Detect current Node version to ensure native modules match
+NODE_VER_CURRENT=$(node -v)
+echo -e "   Building for Node: ${YELLOW}${NODE_VER_CURRENT}${NC}"
+
+# Force rebuild from source to prevent version mismatch issues
+npm install --production=false --build-from-source 2>&1 | tail -n 10
 
 echo -e "${GREEN}🔨 Building...${NC}"
 npm run build -w packages/core   2>&1 | tail -1
