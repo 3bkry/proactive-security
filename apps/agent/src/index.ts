@@ -575,10 +575,19 @@ watcher.on("file_changed", async (changedPath) => {
         }
         if (stats.size === oldOffset) return;
 
-        const newBytesSize = stats.size - oldOffset;
+        let newBytesSize = stats.size - oldOffset;
+        const READ_CAP = 10 * 1024 * 1024; // 10MB safety cap
+        let readStart = oldOffset;
+
+        if (newBytesSize > READ_CAP) {
+            log(`[Agent] ⚠️ Large churn in ${changedPath} (${(newBytesSize / 1024 / 1024).toFixed(2)} MB). Capping read to last 10MB.`);
+            newBytesSize = READ_CAP;
+            readStart = stats.size - READ_CAP;
+        }
+
         const buffer = Buffer.alloc(newBytesSize);
         const fd = fs.openSync(changedPath, 'r');
-        fs.readSync(fd, buffer, 0, newBytesSize, oldOffset);
+        fs.readSync(fd, buffer, 0, newBytesSize, readStart);
         fs.closeSync(fd);
 
         fileOffsets.set(changedPath, stats.size);
@@ -600,7 +609,7 @@ watcher.on("file_added", async (addedPath) => {
 
 watcher.on("file_too_large", (largePath, size) => {
     const sizeMB = (size / 1024 / 1024).toFixed(2);
-    log(`[Agent] ⚠️ Large file: ${largePath} (${sizeMB} MB). Skipped.`);
+    log(`[Agent] ℹ️ Large file detected: ${largePath} (${sizeMB} MB). Tailing end of file only.`);
 
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
