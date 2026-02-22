@@ -11,7 +11,7 @@
  *  - Apache: writes `Require not ip <ip>` rules to a conf file
  */
 
-import { exec } from 'child_process';
+import { exec, execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { log } from '@sentinel/core';
@@ -22,7 +22,6 @@ export type WebServerType = 'nginx' | 'apache' | null;
 
 export function detectWebServer(): WebServerType {
     try {
-        const { execSync } = require('child_process');
 
         // Check Nginx first (more common with Cloudflare setups)
         try {
