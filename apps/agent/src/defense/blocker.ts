@@ -395,22 +395,53 @@ export class Blocker {
     // ── Unblocking ─────────────────────────────────────────────────
 
     /**
+     * Helper: exhaustively delete a single iptables rule until it's fully gone.
+     * Handles duplicates from race conditions.
+     */
+    private flushIptablesRule(chain: string, ip: string): Promise<void> {
+        return new Promise((resolve) => {
+            // iptables -D will exit non-zero when no more rules remain — that's our stop condition
+            exec(`iptables -D ${chain} -s ${ip} -j DROP`, (err) => {
+                if (err) {
+                    // No more rules for this IP in this chain — done
+                    resolve();
+                } else {
+                    // Rule was deleted; try again to catch duplicates
+                    this.flushIptablesRule(chain, ip).then(resolve);
+                }
+            });
+        });
+    }
+
+    /**
+     * Exhaustively remove all iptables DROP rules for an IP across INPUT and DOCKER-USER chains.
+     */
+    private async flushAllIptablesForIP(ip: string): Promise<void> {
+        await this.flushIptablesRule('INPUT', ip);
+        // DOCKER-USER may not exist — that's fine, errors are silent above
+        try {
+            await this.flushIptablesRule('DOCKER-USER', ip);
+        } catch { /* ok if chain missing */ }
+        log(`[Blocker] ✅ iptables rules flushed for ${ip}`);
+    }
+
+    /**
      * Unblock an IP using the same method that was used to block it.
+     * Also works on IPs not in activeBlocks (manual unban from dashboard/Telegram).
      */
     async unblock(ip: string): Promise<boolean> {
         const record = this.activeBlocks.get(ip);
-        if (!record) return false;
-
-        const method = record.blockMethod || 'iptables'; // fallback for old records
+        const method = record?.blockMethod || 'iptables'; // fallback for old/manual records
 
         log(`[Blocker] 🔓 Unblocking IP: ${ip} (method: ${method})`);
 
         if (!this._dryRun) {
-            // Undo primary method
+            // 1. Undo primary CF/web-server method
             switch (method) {
                 case 'cloudflare_api': {
                     if (this.cfBlocker) {
-                        await this.cfBlocker.unblockIP(ip);
+                        const ok = await this.cfBlocker.unblockIP(ip);
+                        log(`[Blocker] CF unblock for ${ip}: ${ok ? '✅ success' : '⚠️ not found or failed'}`);
                     }
                     break;
                 }
@@ -424,14 +455,8 @@ export class Blocker {
                 }
             }
 
-            // Always remove iptables too (was always added alongside)
-            // Use a while loop to handle duplicate rules that might have been added due to race conditions
-            const iptablesCmd = `while sudo iptables -D INPUT -s ${ip} -j DROP 2>/dev/null; do :; done; while sudo iptables -D DOCKER-USER -s ${ip} -j DROP 2>/dev/null; do :; done`;
-            exec(iptablesCmd, (error: Error | null) => {
-                if (error && !error.message.includes('No chain/target/match by that name')) {
-                    log(`[Blocker] ⚠️ iptables unblock note for ${ip}: ${error.message}`);
-                }
-            });
+            // 2. Always flush ALL iptables rules for this IP (handles duplicates)
+            await this.flushAllIptablesForIP(ip);
         } else {
             log(`[Blocker] 🔶 DRY RUN: Would unblock ${ip} via ${method} — skipping`);
         }
@@ -440,6 +465,7 @@ export class Blocker {
         this.offenses.delete(ip);
         this.tempBlockCounts.delete(ip);
         this.saveState();
+        log(`[Blocker] ✅ IP ${ip} fully unblocked and removed from all records.`);
         return true;
     }
 
