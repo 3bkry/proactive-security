@@ -246,7 +246,35 @@ export async function processLogLine(line: string, filePath: string): Promise<vo
                 };
             }
         } else {
-            result = await aiManager.analyze(trimmed);
+            // If AI is available, use it for deep analysis
+            if (aiManager.initialized) {
+                result = await aiManager.analyze(trimmed);
+            } else {
+                // Shield Mode Heuristic Fallback: catch obvious attacks without AI
+                const suspiciousMethod = httpFields.method && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(httpFields.method);
+                const staticTarget = httpFields.endpoint && /\.(html?|jpg|jpeg|png|gif|css|ico|svg|woff2?|ttf|eot)$/i.test(httpFields.endpoint);
+                const suspiciousUA = httpFields.userAgent && /^(-|)$/.test(httpFields.userAgent.trim());
+
+                if (suspiciousMethod && staticTarget) {
+                    result = {
+                        risk: 'MEDIUM',
+                        summary: `[Shield] Suspicious ${httpFields.method} to static resource: ${httpFields.endpoint}`,
+                        ip: realIP,
+                        action: 'Monitor',
+                        tokens: 0,
+                        usage: { totalTokens: 0, totalCost: 0, requestCount: 0 },
+                    };
+                } else if (suspiciousUA && httpFields.endpoint && !/\.(css|js|ico|png|jpg|svg|woff)$/i.test(httpFields.endpoint)) {
+                    result = {
+                        risk: 'MEDIUM',
+                        summary: `[Shield] Request with empty User-Agent to ${httpFields.endpoint}`,
+                        ip: realIP,
+                        action: 'Monitor',
+                        tokens: 0,
+                        usage: { totalTokens: 0, totalCost: 0, requestCount: 0 },
+                    };
+                }
+            }
         }
 
         if (!result) {

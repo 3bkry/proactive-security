@@ -223,7 +223,9 @@ initPipeline({
 telegram.onCommand("status", async () => {
     const stats = await getSystemStats();
     const blockedCount = blocker.getBlockedIPs().length;
+    const aiMode = aiManager.initialized ? '🧠 Neural (AI Active)' : '🛡️ Shield (Local Rules Only)';
     const msg = `🖥️ *Server Status*\n\n` +
+        `*Mode:* ${aiMode}\n` +
         `*CPUs:* ${stats.cpus}\n` +
         `*CPU Load:* ${stats.cpu.load}%\n` +
         `*Memory:* ${stats.memory.usagePercent}%\n` +
@@ -470,7 +472,8 @@ wss.on("connection", async (ws) => {
             totalTokens: aiManager.totalTokens,
             totalCost: aiManager.totalCost,
             requestCount: aiManager.requestCount,
-            model: aiManager.model || "Gemini 1.5 Flash"
+            model: aiManager.model || "Gemini 1.5 Flash",
+            mode: aiManager.initialized ? 'neural' : 'shield'
         }
     }));
 });

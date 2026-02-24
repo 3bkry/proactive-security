@@ -46,9 +46,10 @@ Respond ONLY with this JSON structure:
     constructor() {
         this.initializeFromConfig();
         if (this.provider === 'none') {
-            log("[AI] Sentinel is running in Shield Mode (Offline/Local Rules only).");
+            log("[AI] 🛡️ Shield Mode: Running with local OWASP rules + heuristics only.");
+            log("[AI] 💡 Tip: Set GEMINI_API_KEY in config for AI-powered deep threat analysis (free tier available).");
         } else {
-            log(`[AI] Neural Engine v1.7 Initialized (Model: ${this.model})`);
+            log(`[AI] 🧠 Neural Engine v1.7 Initialized (Model: ${this.model})`);
         }
     }
 

@@ -16,6 +16,7 @@ interface OWASPRule {
     summary: string;
     confidence?: "LOW" | "MEDIUM" | "HIGH";
     cve?: string[];
+    immediate?: boolean;
 }
 
 export class OWASPScanner {
@@ -205,6 +206,105 @@ export class OWASPScanner {
             pattern: /Jenkins|CircleCI|Travis|GitHub Actions|\.github\/workflows|Dockerfile|docker-compose|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|\.npmrc|package\.json/i,
             summary: "CI/CD, dependency artifacts, or Node.js package targeting",
             confidence: "MEDIUM"
+        },
+
+        /* ===================== SCANNER FINGERPRINTS ===================== */
+
+        {
+            category: "A09:2025-Security Logging (Scanner Fingerprint)",
+            risk: "HIGH",
+            pattern: /(?:Nikto|sqlmap|Nmap|ZGrab|Masscan|WPScan|Acunetix|Nessus|OpenVAS|Burp|dirbuster|gobuster|feroxbuster|ffuf|nuclei|httpx|subfinder|amass)\b/i,
+            summary: "Known vulnerability scanner or recon tool detected",
+            confidence: "HIGH",
+            immediate: true
+        },
+        {
+            category: "A09:2025-Security Logging (Suspicious User-Agent)",
+            risk: "MEDIUM",
+            pattern: /^[^"]*"[^"]*"\s+\d+\s+\d+\s+"[^"]*"\s+"(-|)"\s*$/i,
+            summary: "Request with empty or missing User-Agent (likely automated)",
+            confidence: "LOW"
+        },
+
+        /* ===================== WORDPRESS SPECIFIC ===================== */
+
+        {
+            category: "A01:2025-Broken Access Control (WordPress)",
+            risk: "HIGH",
+            pattern: /wp-login\.php|xmlrpc\.php|wp-admin\/admin-ajax\.php|wp-content\/uploads\/.*\.php|wp-includes\/.*\.php\?|\/wp-json\/wp\/v2\/users/i,
+            summary: "WordPress login brute-force, XMLRPC abuse, or user enumeration",
+            confidence: "HIGH"
+        },
+        {
+            category: "A06:2025-Vulnerable Components (WordPress Plugins)",
+            risk: "HIGH",
+            pattern: /wp-content\/plugins\/(revslider|timthumb|akismet|contact-form-7|elementor|wpforms|woocommerce).*\.(php|txt|zip|bak|sql)/i,
+            summary: "Targeting known vulnerable WordPress plugin paths",
+            confidence: "MEDIUM"
+        },
+
+        /* ===================== WEBSHELL & BACKDOOR ===================== */
+
+        {
+            category: "A05:2025-Injection (Webshell)",
+            risk: "CRITICAL",
+            pattern: /c99|r57|b374k|wso\.php|FilesMan|WSO\s|alfa-shell|webshell|phpspy|phpremoteview|mini_shell|p0wny|antak/i,
+            summary: "Known webshell or backdoor access detected",
+            confidence: "HIGH"
+        },
+        {
+            category: "A05:2025-Injection (PHP Eval/Assert)",
+            risk: "HIGH",
+            pattern: /assert\s*\(|eval\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)|base64_decode\s*\(\s*\$_|system\s*\(\s*\$_|passthru\s*\(|exec\s*\(\s*\$_/i,
+            summary: "PHP code execution via eval/assert/system with user input",
+            confidence: "HIGH"
+        },
+
+        /* ===================== API ABUSE ===================== */
+
+        {
+            category: "A02:2025-Cryptographic Failures (API Key Leak)",
+            risk: "HIGH",
+            pattern: /(?:(?:sk|pk)[-_](?:test|live|prod)[-_][a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|glpat-[a-zA-Z0-9\-_]{20,}|AKIA[A-Z0-9]{16})/i,
+            summary: "Potential API key or secret token in request (Stripe, GitHub, GitLab, AWS)",
+            confidence: "MEDIUM"
+        },
+        {
+            category: "A04:2025-Insecure Design (Mass Assignment)",
+            risk: "MEDIUM",
+            pattern: /\b(isAdmin|is_admin|role|permission|privilege|admin)\b\s*[=:]\s*(true|1|"admin"|"root")/i,
+            summary: "Potential mass assignment or privilege escalation attempt",
+            confidence: "MEDIUM"
+        },
+
+        /* ===================== CRYPTO / MINING ===================== */
+
+        {
+            category: "A05:2025-Injection (Cryptominer)",
+            risk: "CRITICAL",
+            pattern: /stratum\+tcp|xmrig|coinhive|cryptonight|monero|coinminer|kinsing|TeamTNT/i,
+            summary: "Cryptomining payload or known mining botnet signature",
+            confidence: "HIGH"
+        },
+
+        /* ===================== CRLF / HEADER INJECTION ===================== */
+
+        {
+            category: "A05:2025-Injection (CRLF / Header Injection)",
+            risk: "HIGH",
+            pattern: /%0d%0a|%0d|%0a|\\r\\n|Set-Cookie:|Location:\s*https?:\/\//i,
+            summary: "CRLF injection or HTTP header manipulation attempt",
+            confidence: "MEDIUM"
+        },
+
+        /* ===================== OPEN REDIRECT ===================== */
+
+        {
+            category: "A01:2025-Broken Access Control (Open Redirect)",
+            risk: "MEDIUM",
+            pattern: /[?&](redirect|url|next|return|goto|dest|destination|rurl|link|target)=https?:\/\//i,
+            summary: "Potential open redirect via URL parameter",
+            confidence: "MEDIUM"
         }
     ];
 
@@ -231,7 +331,7 @@ export class OWASPScanner {
                         risk: rule.risk,
                         summary: rule.summary,
                         action: "Immediate mitigation recommended (" + rule.category + ")",
-                        immediate: rule.risk === "CRITICAL" || rule.risk === "HIGH",
+                        immediate: rule.immediate ?? (rule.risk === "CRITICAL" || rule.risk === "HIGH"),
                         confidence: rule.confidence,
                         cve: rule.cve
                     });
@@ -250,7 +350,7 @@ export class OWASPScanner {
                         risk: rule.risk,
                         summary: rule.summary,
                         action: "Immediate mitigation recommended (" + rule.category + ")",
-                        immediate: rule.risk === "CRITICAL" || rule.risk === "HIGH",
+                        immediate: rule.immediate ?? (rule.risk === "CRITICAL" || rule.risk === "HIGH"),
                         confidence: rule.confidence,
                         cve: rule.cve
                     });
