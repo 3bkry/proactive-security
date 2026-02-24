@@ -33,8 +33,26 @@ export class SentinelDB {
         source UNINDEXED,
         timestamp UNINDEXED
       );
+      
+      CREATE TABLE IF NOT EXISTS blocks (
+        ip TEXT PRIMARY KEY,
+        realIP TEXT,
+        proxyIP TEXT,
+        userAgent TEXT,
+        method TEXT,
+        endpoint TEXT,
+        timestamp INTEGER,
+        action TEXT,
+        reason TEXT,
+        risk TEXT,
+        source TEXT,
+        expiresAt INTEGER,
+        blockMethod TEXT,
+        cfRuleId TEXT
+      );
     `);
   }
+
 
   public saveThreat(threat: Threat) {
     const stmt = this.db.prepare(`
@@ -84,4 +102,48 @@ export class SentinelDB {
       timestamp: new Date(row.timestamp),
     }));
   }
+
+  public saveBlock(record: any) {
+    const stmt = this.db.prepare(`
+        INSERT OR REPLACE INTO blocks (
+            ip, realIP, proxyIP, userAgent, method, endpoint, 
+            timestamp, action, reason, risk, source, expiresAt, blockMethod, cfRuleId
+        ) VALUES (
+            @ip, @realIP, @proxyIP, @userAgent, @method, @endpoint, 
+            @timestamp, @action, @reason, @risk, @source, @expiresAt, @blockMethod, @cfRuleId
+        )
+    `);
+
+    // Convert boolean 'action' back to stored string if needed, or keep it as is.
+    // The previous BlockRecord type had string 'action', we are flexible here.
+    const sqlRecord = {
+      ...record,
+      expiresAt: record.expiresAt || null,
+      cfRuleId: record.cfRuleId || null
+    };
+
+    stmt.run(sqlRecord);
+  }
+
+  public removeBlock(ip: string) {
+    const stmt = this.db.prepare("DELETE FROM blocks WHERE ip = ?");
+    stmt.run(ip);
+  }
+
+  public getActiveBlocks(): Record<string, any> {
+    const stmt = this.db.prepare("SELECT * FROM blocks");
+    const rows = stmt.all() as any[];
+
+    const activeBlocks: Record<string, any> = {};
+    for (const row of rows) {
+      // Purge expired records on load
+      if (row.expiresAt && Date.now() > row.expiresAt) {
+        this.removeBlock(row.ip);
+        continue;
+      }
+      activeBlocks[row.ip] = row;
+    }
+    return activeBlocks;
+  }
 }
+

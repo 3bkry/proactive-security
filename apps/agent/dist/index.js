@@ -11,11 +11,19 @@
  *  - File watcher + state persistence
  */
 import "dotenv/config";
+import { log } from '@sentinel/core';
+// ── Global Safety Net ───────────────────────────────────────────
+// Prevent the agent from exiting on unhandled promise rejections
+// (e.g. transient network timeouts in third-party libraries).
+process.on('unhandledRejection', (reason, promise) => {
+    log(`[Sentinel] ⚠️ UNHANDLED REJECTION: ${reason}`);
+});
 import { WebSocketServer, WebSocket } from "ws";
 import * as fs from 'fs';
+import path from 'path';
 import { LogWatcher } from "./watcher.js";
 import { AIManager } from "./ai.js";
-import { log, getSystemStats, CONFIG_FILE, STATE_FILE, } from '@sentinel/core';
+import { getSystemStats, CONFIG_FILE, STATE_FILE, SENTINEL_DATA_DIR, SentinelDB, } from '@sentinel/core';
 import { Blocker } from "./defense/blocker.js";
 import { RateLimiter } from "./defense/rate-limiter.js";
 import { TelegramNotifier } from "./telegram.js";
@@ -101,6 +109,8 @@ const rateLimiter = new RateLimiter(defenseConfig);
 const telegram = new TelegramNotifier(blocker); // Blocker has compatible API
 const heartbeat = new HeartbeatService(wss);
 const monitor = new ResourceMonitor(telegram);
+const dbPath = path.join(SENTINEL_DATA_DIR, 'sentinel.db');
+const db = new SentinelDB(dbPath);
 // ── Initialize Cloudflare Ranges ─────────────────────────────────
 await initCloudflareRanges();
 // ── Initialize Pipeline ──────────────────────────────────────────
@@ -188,6 +198,7 @@ initPipeline({
     telegram,
     wss,
     cloudClient,
+    db,
     isSafeMode,
     isWarmingUp,
 });
@@ -497,6 +508,15 @@ async function tailAndWatch(filePath) {
             return;
         }
         const startupLines = getStartupLines();
+        // 1-Week Ignore Feature: Skip reading historic lines if file hasn't been updated in 7 days
+        const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+        const isStale = (Date.now() - stats.mtimeMs) > SEVEN_DAYS_MS;
+        if (isStale) {
+            log(`[Agent] ⏭️ Skipping initial read for ${filePath} (Not updated in > 7 days)`);
+            fileOffsets.set(filePath, fileSize);
+            saveState();
+            return;
+        }
         if (startupLines > 0 && fileSize > 0) {
             const ESTIMATED_BYTES_PER_LINE = 200;
             const readSize = Math.min(fileSize, startupLines * ESTIMATED_BYTES_PER_LINE);
@@ -536,10 +556,17 @@ watcher.on("file_changed", async (changedPath) => {
         }
         if (stats.size === oldOffset)
             return;
-        const newBytesSize = stats.size - oldOffset;
+        let newBytesSize = stats.size - oldOffset;
+        const READ_CAP = 10 * 1024 * 1024; // 10MB safety cap
+        let readStart = oldOffset;
+        if (newBytesSize > READ_CAP) {
+            log(`[Agent] ⚠️ Large churn in ${changedPath} (${(newBytesSize / 1024 / 1024).toFixed(2)} MB). Capping read to last 10MB.`);
+            newBytesSize = READ_CAP;
+            readStart = stats.size - READ_CAP;
+        }
         const buffer = Buffer.alloc(newBytesSize);
         const fd = fs.openSync(changedPath, 'r');
-        fs.readSync(fd, buffer, 0, newBytesSize, oldOffset);
+        fs.readSync(fd, buffer, 0, newBytesSize, readStart);
         fs.closeSync(fd);
         fileOffsets.set(changedPath, stats.size);
         saveState();
@@ -559,7 +586,7 @@ watcher.on("file_added", async (addedPath) => {
 });
 watcher.on("file_too_large", (largePath, size) => {
     const sizeMB = (size / 1024 / 1024).toFixed(2);
-    log(`[Agent] ⚠️ Large file: ${largePath} (${sizeMB} MB). Skipped.`);
+    log(`[Agent] ℹ️ Large file detected: ${largePath} (${sizeMB} MB). Tailing end of file only.`);
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify({

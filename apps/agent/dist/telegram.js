@@ -209,7 +209,7 @@ export class TelegramNotifier {
         this.sentAlerts.set(checkString, now);
         this.saveState();
         // ----------------------------------------------------
-        const icon = risk === "HIGH" ? "🚨" : (risk === "MEDIUM" ? "⚠️" : "ℹ️");
+        const icon = risk === "CRITICAL" ? "💀" : (risk === "HIGH" ? "🚨" : (risk === "MEDIUM" ? "⚠️" : "ℹ️"));
         let message = `${icon} *SENTINEL AI ALERT*\n\n*Risk:* ${risk}\n*Summary:* ${summary}`;
         if (ip) {
             message += `\n*Attacker IP:* \`${ip}\``;

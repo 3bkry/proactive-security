@@ -531,6 +531,18 @@ async function tailAndWatch(filePath: string) {
         }
 
         const startupLines = getStartupLines();
+
+        // 1-Week Ignore Feature: Skip reading historic lines if file hasn't been updated in 7 days
+        const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+        const isStale = (Date.now() - stats.mtimeMs) > SEVEN_DAYS_MS;
+
+        if (isStale) {
+            log(`[Agent] ⏭️ Skipping initial read for ${filePath} (Not updated in > 7 days)`);
+            fileOffsets.set(filePath, fileSize);
+            saveState();
+            return;
+        }
+
         if (startupLines > 0 && fileSize > 0) {
             const ESTIMATED_BYTES_PER_LINE = 200;
             const readSize = Math.min(fileSize, startupLines * ESTIMATED_BYTES_PER_LINE);

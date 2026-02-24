@@ -11,7 +11,6 @@ export class LogWatcher extends EventEmitter {
         this.watcher = chokidar.watch([], {
             persistent: true,
             ignoreInitial: true,
-            usePolling: true,
             depth: 2, // Hard limit on recursion depth
             ignored: [
                 /(^|[\/\\])\../, // Dotfiles
@@ -56,13 +55,10 @@ export class LogWatcher extends EventEmitter {
         }
         try {
             if (fs.existsSync(filePath)) {
+                // Remove hard size limit to allow tailing large files.
+                // Memory safety is handled in the reader (index.ts).
                 const stats = fs.statSync(filePath);
-                const maxSize = 10 * 1024 * 1024; // 10MB (Reduced from 20MB)
-                if (stats.size > maxSize) {
-                    log(`[Watcher] ⚠️ Skipping large file (>10MB): ${filePath}`);
-                    this.emit("file_too_large", filePath, stats.size);
-                    return false;
-                }
+                log(`[Watcher] Preparing to watch ${filePath} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
             }
         }
         catch (e) {

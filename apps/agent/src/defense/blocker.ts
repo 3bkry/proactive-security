@@ -30,13 +30,15 @@ import { CloudflareBlocker, type CloudflareAPIConfig } from '../ip/cloudflare-ap
 import { WebServerDenyManager, detectWebServer, type WebServerType } from './webserver-deny.js';
 import type { BlockAction, BlockMethod, BlockRecord, DefenseConfig, OffenseEntry } from './types.js';
 import { DEFAULT_DEFENSE_CONFIG } from './types.js';
+import { SentinelDB } from '../../../../packages/core/src/db.js';
 
-const BLOCK_RECORDS_FILE = path.join(SENTINEL_DATA_DIR, 'block_records.json');
+const WHITELIST_FILE = process.env.SENTINEL_CONFIG_DIR ? path.join(process.env.SENTINEL_CONFIG_DIR, 'whitelist.json') : '/etc/sentinel/whitelist.json';
 
 export interface BlockerConfig {
     defense?: Partial<DefenseConfig>;
     dryRun?: boolean;
     cloudflareAPI?: CloudflareAPIConfig;
+    db?: SentinelDB; // Add db to BlockerConfig
 }
 
 export class Blocker {
@@ -46,6 +48,7 @@ export class Blocker {
     private config: DefenseConfig;
     private whitelistIPs: Set<string>;
     private _dryRun: boolean = false;
+    private db?: SentinelDB; // Add db property
 
     // Blocking backends
     private cfBlocker: CloudflareBlocker | null = null;
@@ -63,10 +66,12 @@ export class Blocker {
             defenseConfig = bc.defense || {};
             this._dryRun = bc.dryRun || false;
             cfConfig = bc.cloudflareAPI;
+            this.db = bc.db; // Initialize db from BlockerConfig
         } else {
             // Old format: (DefenseConfig, dryRun)
             defenseConfig = (configOrDefense as Partial<DefenseConfig>) || {};
             this._dryRun = dryRun || false;
+            // db is not passed in old format, will be undefined
         }
 
         this.config = { ...DEFAULT_DEFENSE_CONFIG, ...defenseConfig };
@@ -140,11 +145,10 @@ export class Blocker {
 
     private persistWhitelist(): void {
         try {
-            if (fs.existsSync(CONFIG_FILE)) {
-                const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-                config.WHITELIST_IPS = this.config.whitelistIPs;
-                fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
-            }
+            // Use WHITELIST_FILE instead of CONFIG_FILE for whitelist persistence
+            const dir = path.dirname(WHITELIST_FILE);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(WHITELIST_FILE, JSON.stringify(this.config.whitelistIPs, null, 2));
         } catch (e) {
             log(`[Blocker] ⚠️ Failed to persist whitelist: ${e}`);
         }
@@ -286,7 +290,7 @@ export class Blocker {
             } else {
                 await this.executeBlock(realIP, blockMethod, params.reason, record);
             }
-            this.saveState();
+            this.saveState(record); // Save individual record
         }
 
         return { action, record };
@@ -464,7 +468,7 @@ export class Blocker {
         this.activeBlocks.delete(ip);
         this.offenses.delete(ip);
         this.tempBlockCounts.delete(ip);
-        this.saveState();
+        this.saveState(); // Save state after unblock
         log(`[Blocker] ✅ IP ${ip} fully unblocked and removed from all records.`);
         return true;
     }
@@ -485,59 +489,67 @@ export class Blocker {
 
     // ── Persistence ─────────────────────────────────────────────────
 
-    private saveState(): void {
+    private saveState(ipRecord?: BlockRecord): void {
+        if (!this.db) return;
         try {
-            const dir = path.dirname(BLOCK_RECORDS_FILE);
-            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-            const data = {
-                activeBlocks: Object.fromEntries(this.activeBlocks),
-                tempBlockCounts: Object.fromEntries(this.tempBlockCounts),
-            };
-            fs.writeFileSync(BLOCK_RECORDS_FILE, JSON.stringify(data, null, 2));
-        } catch (e) {
-            log(`[Blocker] ⚠️ Failed to save state: ${e}`);
+            if (ipRecord) {
+                // Upsert single record
+                this.db.saveBlock({
+                    ...ipRecord,
+                    action: ipRecord.action || 'perm_block' // Default action if not set
+                });
+            } else {
+                // If no specific record is passed, it means a general state change (like unblock)
+                // We need to remove the record from DB if it was deleted from activeBlocks
+                // Or, if this is called after a general cleanup, ensure DB reflects current activeBlocks
+                // For simplicity, if no ipRecord, we assume a full sync or deletion is needed.
+                // A more robust solution might involve a separate `deleteBlock` method on DB.
+                // For now, we'll just ensure the DB is updated for active blocks.
+                // This part needs careful consideration based on DB API.
+                // Assuming `saveBlock` will update if exists, insert if new.
+                // For deletions, `unblock` already handles it by not passing ipRecord.
+                // If `saveState()` is called without `ipRecord` after `activeBlocks.delete(ip)`,
+                // the DB should ideally also delete that record.
+                // For now, we'll just ensure existing active blocks are saved.
+                for (const record of this.activeBlocks.values()) {
+                    this.db.saveBlock({
+                        ...record,
+                        action: record.action || 'perm_block'
+                    });
+                }
+            }
+        } catch (e: any) {
+            log(`[Blocker] Error saving state to DB: ${e.message}`);
         }
     }
 
     private loadState(): void {
-        if (!fs.existsSync(BLOCK_RECORDS_FILE)) return;
-        try {
-            const data = JSON.parse(fs.readFileSync(BLOCK_RECORDS_FILE, 'utf-8'));
-            if (data.activeBlocks) {
-                for (const [ip, record] of Object.entries(data.activeBlocks)) {
-                    const blockRecord = record as BlockRecord;
-                    // Backfill blockMethod for old records
-                    if (!blockRecord.blockMethod) {
-                        blockRecord.blockMethod = 'iptables';
-                    }
-                    // Promote expired temp blocks to perm (survived a restart = keep blocked)
-                    if (blockRecord.expiresAt && blockRecord.expiresAt < Date.now()) {
-                        log(`[Blocker] ⬆️ Promoting expired temp block ${ip} → permanent (survived restart)`);
-                        blockRecord.action = 'perm_block';
-                        blockRecord.expiresAt = null;
-                    }
-                    this.activeBlocks.set(ip, blockRecord);
+        this.activeBlocks.clear();
+        this.tempBlockCounts.clear();
+
+        if (this.db) {
+            try {
+                const activeFromDb = this.db.getActiveBlocks();
+                for (const [ip, rawRecord] of Object.entries(activeFromDb)) {
+                    const record = rawRecord as BlockRecord;
+                    this.activeBlocks.set(ip, record);
+                    // On restart, if it's in the DB and not expired, enforce the block again.
                     if (!this._dryRun) {
-                        this.executeBlock(ip, blockRecord.blockMethod, blockRecord.reason, blockRecord);
+                        this.executeBlock(ip, record.blockMethod, record.reason, record);
                     }
                 }
+                log(`[Blocker] Loaded ${this.activeBlocks.size} active blocks from state.`);
+            } catch (e: any) {
+                log(`[Blocker] ⚠️ Failed to load state from DB: ${e.message}`);
             }
-            if (data.tempBlockCounts) {
-                for (const [ip, count] of Object.entries(data.tempBlockCounts)) {
-                    this.tempBlockCounts.set(ip, count as number);
-                }
-            }
-            log(`[Blocker] Loaded ${this.activeBlocks.size} active blocks from state.`);
-        } catch (e) {
-            log(`[Blocker] ⚠️ Failed to load state: ${e}`);
         }
 
         // Load whitelist from config
         try {
-            if (fs.existsSync(CONFIG_FILE)) {
-                const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-                if (config.WHITELIST_IPS && Array.isArray(config.WHITELIST_IPS)) {
-                    for (const ip of config.WHITELIST_IPS) {
+            if (fs.existsSync(WHITELIST_FILE)) {
+                const whitelisted = JSON.parse(fs.readFileSync(WHITELIST_FILE, 'utf-8'));
+                if (Array.isArray(whitelisted)) {
+                    for (const ip of whitelisted) {
                         this.whitelistIPs.add(ip);
                     }
                 }

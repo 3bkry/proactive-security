@@ -8,4 +8,7 @@ export declare class SentinelDB {
     indexLog(line: string, source: string): void;
     searchLogs(query: string, limit?: number): any[];
     getThreats(limit?: number): Threat[];
+    saveBlock(record: any): void;
+    removeBlock(ip: string): void;
+    getActiveBlocks(): Record<string, any>;
 }
