@@ -117,8 +117,19 @@ export class SentinelDB {
     // Convert boolean 'action' back to stored string if needed, or keep it as is.
     // The previous BlockRecord type had string 'action', we are flexible here.
     const sqlRecord = {
-      ...record,
+      ip: record.ip || null,
+      realIP: record.realIP ?? null,
+      proxyIP: record.proxyIP ?? null,
+      userAgent: record.userAgent ?? null,
+      method: record.method ?? null,
+      endpoint: record.endpoint ?? null,
+      timestamp: record.timestamp || Date.now(),
+      action: record.action || 'perm_block',
+      reason: record.reason ?? null,
+      risk: record.risk ?? null,
+      source: record.source ?? null,
       expiresAt: record.expiresAt || null,
+      blockMethod: record.blockMethod ?? null,
       cfRuleId: record.cfRuleId || null
     };
 
