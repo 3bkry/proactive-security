@@ -300,7 +300,7 @@ export async function processLogLine(line: string, filePath: string): Promise<vo
 
         // ── Stage 9: Defense Execution ──
         const attackerIP = result.ip || realIP;
-        if (attackerIP && (result.risk === 'CRITICAL' || result.risk === 'HIGH' || result.risk === 'MEDIUM')) {
+        if (attackerIP && (result.risk === 'CRITICAL' || result.risk === 'HIGH' || result.risk === 'MEDIUM') && result.action !== 'Monitor') {
             if (isWarmingUp) {
                 log(`[Safety] ⏳ WARMUP: Suppressed defense against ${attackerIP}`);
                 result.action = 'Monitor Only (Warmup)';
