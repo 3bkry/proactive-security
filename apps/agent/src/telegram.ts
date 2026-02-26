@@ -94,6 +94,14 @@ export class TelegramNotifier {
                                     };
                                     this.sendToChat(query.message!.chat.id, `🚫 **IP BANNED MANUALLY:** ${ip}`, opts);
                                 }
+                            } else if (action === 'unban_all') {
+                                if (this.blocker) {
+                                    await (this.blocker as any).unblockAll();
+                                    if (query.id) {
+                                        this.bot?.answerCallbackQuery(query.id, { text: `All IPs Unbanned!` }).catch(() => { });
+                                        this.sendToChat(query.message!.chat.id, `✅ **BULK ACTION:** All IPs have been unbanned.`, { parse_mode: 'Markdown' });
+                                    }
+                                }
                             } else if (action.startsWith('unban_')) {
                                 const ip = action.split('_')[1];
                                 await this.blocker.unblock(ip);

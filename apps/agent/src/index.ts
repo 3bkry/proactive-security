@@ -266,7 +266,15 @@ telegram.onCommand("banned", () => {
     });
 
     const msg = `🚫 *Blocked IPs (${records.length})*\n\n` + lines.join("\n");
-    telegram.sendMessage(msg);
+
+    const options: any = { parse_mode: 'Markdown' };
+    if (records.length > 0) {
+        options.reply_markup = {
+            inline_keyboard: [[{ text: "🔓 Unban All", callback_data: "unban_all" }]]
+        };
+    }
+
+    telegram.sendMessage(msg, options);
 });
 
 telegram.onCommand("whitelist", (msg) => {

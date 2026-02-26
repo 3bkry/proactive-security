@@ -231,9 +231,16 @@ export class OWASPScanner {
         {
             category: "A01:2025-Broken Access Control (WordPress)",
             risk: "HIGH",
-            pattern: /wp-login\.php|xmlrpc\.php|wp-admin\/admin-ajax\.php|wp-content\/uploads\/.*\.php|wp-includes\/.*\.php\?|\/wp-json\/wp\/v2\/users/i,
-            summary: "WordPress login brute-force, XMLRPC abuse, or user enumeration",
+            pattern: /wp-login\.php|wp-admin\/admin-ajax\.php|wp-content\/uploads\/.*\.php|wp-includes\/.*\.php\?|\/wp-json\/wp\/v2\/users/i,
+            summary: "WordPress login brute-force or user enumeration",
             confidence: "HIGH"
+        },
+        {
+            category: "A01:2025-Broken Access Control (WordPress: XMLRPC)",
+            risk: "MEDIUM",
+            pattern: /xmlrpc\.php/i,
+            summary: "WordPress XML-RPC interface access (Potential brute-force or pingback abuse)",
+            confidence: "MEDIUM"
         },
         {
             category: "A06:2025-Vulnerable Components (WordPress Plugins)",

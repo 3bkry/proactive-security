@@ -473,6 +473,15 @@ export class Blocker {
         return true;
     }
 
+    async unblockAll(): Promise<void> {
+        const ips = this.getBlockedIPs();
+        log(`[Blocker] 🔓 Bulk Unblock: Removing all ${ips.length} active blocks...`);
+        for (const ip of ips) {
+            await this.unblock(ip);
+        }
+        log(`[Blocker] ✅ All IPs unblocked.`);
+    }
+
     // ── Queries ─────────────────────────────────────────────────────
 
     isBlocked(ip: string): boolean {
