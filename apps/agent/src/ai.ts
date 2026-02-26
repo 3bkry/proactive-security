@@ -77,11 +77,16 @@ Respond ONLY with this JSON structure:
                     this.model = config.OPENAI_MODEL || "gpt-4o";
                 } else if (this.provider === "zhipu") {
                     this.model = config.ZHIPU_MODEL || "glm-4-plus";
-                } else {
+                } else if (this.provider === "gemini") {
                     this.model = config.GEMINI_MODEL || "gemini-3-flash-preview";
                 }
 
-                this.initialized = !!(this.geminiClient || this.openaiClient);
+                // Strictly disable AI if provider is 'none'
+                if (this.provider === "none") {
+                    this.initialized = false;
+                } else {
+                    this.initialized = !!(this.geminiClient || this.openaiClient);
+                }
             } catch (e) { }
         }
     }

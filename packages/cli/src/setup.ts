@@ -273,6 +273,10 @@ export async function runSetup() {
 
     if (answers.aiProvider) {
         config.AI_PROVIDER = answers.aiProvider;
+        // Clear keys for other providers or if 'none' is selected
+        if (answers.aiProvider !== 'gemini') delete config.GEMINI_API_KEY;
+        if (answers.aiProvider !== 'openai') delete config.OPENAI_API_KEY;
+        if (answers.aiProvider !== 'zhipu') delete config.ZHIPU_API_KEY;
     }
 
     if (answers.geminiKey) {
