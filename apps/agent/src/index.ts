@@ -117,6 +117,13 @@ const blocker = new Blocker({
     cloudflareAPI: cfAPIConfig,
 });
 const rateLimiter = new RateLimiter(defenseConfig);
+
+// Threat Score Accumulator — replaces one-hit banning with confidence-based scoring
+import { ThreatScoreAccumulator } from './defense/threat-score.js';
+const threatScoreConfig = defenseConfig.threatScore || {};
+const threatScorer = new ThreatScoreAccumulator(threatScoreConfig);
+log(`[Defense] 📊 ThreatScore engine initialized (threshold: ${threatScoreConfig.banThreshold || 80})`);
+
 const telegram = new TelegramNotifier(blocker as any); // Blocker has compatible API
 const heartbeat = new HeartbeatService(wss);
 const monitor = new ResourceMonitor(telegram);
@@ -209,6 +216,7 @@ if (cloudUrl && agentKey) {
 initPipeline({
     blocker,
     rateLimiter,
+    threatScorer,
     aiManager,
     telegram,
     wss,

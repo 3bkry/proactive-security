@@ -302,6 +302,55 @@ export class Blocker {
         return Math.floor(Math.random() * (max - min)) + min;
     }
 
+    // ── Known Service IP Ranges (Never Ban) ─────────────────────────
+    // These are webhook/monitoring services that connect TO your server.
+    // Banning them breaks your own integrations.
+    private static readonly SAFE_SERVICE_CIDRS: string[] = [
+        // Telegram Bot API — webhook callbacks
+        '149.154.160.0/20',
+        '91.108.4.0/22',
+        '91.108.8.0/22',
+        '91.108.12.0/22',
+        '91.108.16.0/22',
+        '91.108.20.0/22',
+        '91.108.56.0/22',
+        // UptimeRobot monitoring
+        '216.144.250.0/24',
+        '69.162.124.0/24',
+        // Internal/private ranges (Docker, LAN)
+        '10.0.0.0/8',
+        '172.16.0.0/12',
+        '192.168.0.0/16',
+    ];
+
+    /**
+     * Lightweight CIDR match: check if an IPv4 address falls within a CIDR range.
+     */
+    private static ipInCIDR(ip: string, cidr: string): boolean {
+        const [rangeIP, prefixStr] = cidr.split('/');
+        const prefix = parseInt(prefixStr, 10);
+        if (isNaN(prefix)) return false;
+
+        const ipNum = Blocker.ipToNumber(ip);
+        const rangeNum = Blocker.ipToNumber(rangeIP);
+        if (ipNum === null || rangeNum === null) return false;
+
+        const mask = ~((1 << (32 - prefix)) - 1) >>> 0;
+        return (ipNum & mask) === (rangeNum & mask);
+    }
+
+    private static ipToNumber(ip: string): number | null {
+        const parts = ip.split('.');
+        if (parts.length !== 4) return null;
+        let num = 0;
+        for (const part of parts) {
+            const octet = parseInt(part, 10);
+            if (isNaN(octet) || octet < 0 || octet > 255) return null;
+            num = (num << 8) | octet;
+        }
+        return num >>> 0;
+    }
+
     // ── Safety Checks ──────────────────────────────────────────────
 
     private async isSafe(ip: string, userAgent: string | null): Promise<boolean> {
@@ -320,6 +369,14 @@ export class Blocker {
 
         // Whitelist
         if (this.whitelistIPs.has(ip)) return true;
+
+        // Known service IP ranges (Telegram, UptimeRobot, private networks)
+        for (const cidr of Blocker.SAFE_SERVICE_CIDRS) {
+            if (Blocker.ipInCIDR(ip, cidr)) {
+                log(`[Blocker] 🛡️ SAFETY: Skipping known service IP ${ip} (range: ${cidr})`);
+                return true;
+            }
+        }
 
         // Cloudflare IP (never ban proxy IPs)
         if (isCloudflareIP(ip)) {

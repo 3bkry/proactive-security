@@ -46,16 +46,16 @@ export interface RateLimitVerdict {
 /** Configurable defense thresholds */
 export interface DefenseConfig {
     // Progressive blocking
-    tempBlockDurationMin: number;   // default: 15
-    tempBlockDurationMax: number;   // default: 30
-    offenseWindowSec: number;       // default: 60
-    permBlockAfterTempBlocks: number; // default: 3 temp blocks → perm
+    tempBlockDurationMin: number;   // default: 30 (was 10)
+    tempBlockDurationMax: number;   // default: 60 (was 30)
+    offenseWindowSec: number;       // default: 300 (was 60) — wider evidence window
+    permBlockAfterTempBlocks: number; // default: 5 (was 3) — need more evidence
 
-    // Rate limiting
-    rateLimit_requestsPerSec: number;  // default: 50
-    rateLimit_uniqueEndpoints: number; // in rateLimitWindowSec
+    // Rate limiting (tuned for less aggression)
+    rateLimit_requestsPerSec: number;  // default: 200 (was 100)
+    rateLimit_uniqueEndpoints: number; // default: 300 (was 150)
     rateLimit_errorRatePercent: number; // default: 80 (%)
-    rateLimit_windowSec: number;       // default: 30
+    rateLimit_windowSec: number;       // default: 60 (was 30)
 
     // Whitelist
     whitelistIPs: string[];
@@ -63,15 +63,17 @@ export interface DefenseConfig {
 }
 
 export const DEFAULT_DEFENSE_CONFIG: DefenseConfig = {
-    tempBlockDurationMin: 10,
-    tempBlockDurationMax: 30,
-    offenseWindowSec: 60,
-    permBlockAfterTempBlocks: 3,
+    // Slower escalation: give more time to accumulate evidence
+    tempBlockDurationMin: 30,
+    tempBlockDurationMax: 60,
+    offenseWindowSec: 300,
+    permBlockAfterTempBlocks: 5,
 
-    rateLimit_requestsPerSec: 100,
-    rateLimit_uniqueEndpoints: 150,
+    // Less aggressive rate limits
+    rateLimit_requestsPerSec: 200,
+    rateLimit_uniqueEndpoints: 300,
     rateLimit_errorRatePercent: 80,
-    rateLimit_windowSec: 30,
+    rateLimit_windowSec: 60,
 
     whitelistIPs: [],
     trustedProxyCIDRs: [],
