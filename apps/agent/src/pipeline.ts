@@ -164,7 +164,7 @@ export async function processLogLine(line: string, filePath: string): Promise<vo
         if (settings.filterHttp && !httpFields.method) return;
 
         // ── Stage 5: Rate Limiting ──
-        const rateVerdict = rateLimiter.check(realIP, httpFields.endpoint, httpFields.statusCode);
+        const rateVerdict = rateLimiter.check(realIP, httpFields.endpoint, httpFields.statusCode, httpFields.userAgent);
 
         if (rateVerdict.triggered) {
             log(`[RateLimit] ⚡ ${realIP}: ${rateVerdict.reason}`);
