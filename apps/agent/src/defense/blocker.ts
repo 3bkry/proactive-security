@@ -118,11 +118,15 @@ export class Blocker {
         this.whitelistIPs.add(ip);
         this.config.whitelistIPs = [...this.whitelistIPs];
         this.persistWhitelist();
-        // If currently blocked, unblock
+        // If currently blocked, unblock first
         if (this.activeBlocks.has(ip)) {
             this.unblock(ip);
         }
-        log(`[Blocker] ✅ Added ${ip} to whitelist.`);
+        // Add explicit iptables ACCEPT rule so this IP is always allowed
+        if (!this._dryRun) {
+            this.executeIptablesAllow(ip);
+        }
+        log(`[Blocker] ✅ Added ${ip} to whitelist + iptables ACCEPT.`);
         return true;
     }
 
@@ -131,7 +135,11 @@ export class Blocker {
         this.whitelistIPs.delete(ip);
         this.config.whitelistIPs = [...this.whitelistIPs];
         this.persistWhitelist();
-        log(`[Blocker] 🗑️ Removed ${ip} from whitelist.`);
+        // Remove the iptables ACCEPT rule
+        if (!this._dryRun) {
+            this.removeIptablesAllow(ip);
+        }
+        log(`[Blocker] 🗑️ Removed ${ip} from whitelist + iptables ACCEPT.`);
         return true;
     }
 
@@ -449,6 +457,42 @@ export class Blocker {
                     if (safeErr) log(`[Blocker] ⚠️ Safety allowlist error: ${safeErr.message}`);
                 });
                 exec(dockerCmd, () => { /* ok if docker chain missing */ });
+            }
+        });
+    }
+
+    /**
+     * Add an explicit iptables ACCEPT rule for a whitelisted IP.
+     * Also flushes any existing DROP rules for this IP first.
+     */
+    private executeIptablesAllow(ip: string): void {
+        // 1. First flush any existing DROP rules for this IP
+        const flushDrop = `while iptables -D INPUT -s ${ip} -j DROP 2>/dev/null; do :; done`;
+        // 2. Then add ACCEPT rule (idempotent — check first)
+        const allowCmd = `iptables -C INPUT -s ${ip} -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -s ${ip} -j ACCEPT`;
+        // 3. Same for DOCKER-USER chain
+        const dockerFlush = `while iptables -D DOCKER-USER -s ${ip} -j DROP 2>/dev/null; do :; done`;
+        const dockerAllow = `iptables -C DOCKER-USER -s ${ip} -j ACCEPT 2>/dev/null || (iptables -L DOCKER-USER >/dev/null 2>&1 && iptables -I DOCKER-USER 1 -s ${ip} -j ACCEPT)`;
+
+        exec(`${flushDrop} && ${allowCmd}`, (error: Error | null) => {
+            if (error) {
+                log(`[Blocker] ⚠️ Failed to add ACCEPT for ${ip}: ${error.message}`);
+            } else {
+                log(`[Blocker] ✅ iptables ACCEPT rule added for ${ip}`);
+                exec(`${dockerFlush}; ${dockerAllow}`, () => { /* ok if docker chain missing */ });
+            }
+        });
+    }
+
+    /**
+     * Remove the iptables ACCEPT rule when an IP is removed from whitelist.
+     */
+    private removeIptablesAllow(ip: string): void {
+        const cmd = `iptables -D INPUT -s ${ip} -j ACCEPT 2>/dev/null`;
+        const dockerCmd = `iptables -D DOCKER-USER -s ${ip} -j ACCEPT 2>/dev/null`;
+        exec(`${cmd}; ${dockerCmd}`, (error: Error | null) => {
+            if (!error) {
+                log(`[Blocker] 🗑️ iptables ACCEPT rule removed for ${ip}`);
             }
         });
     }

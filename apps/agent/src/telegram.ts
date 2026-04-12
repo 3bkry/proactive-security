@@ -105,10 +105,30 @@ export class TelegramNotifier {
                             } else if (action.startsWith('unban_')) {
                                 const ip = action.split('_')[1];
                                 await this.blocker.unblock(ip);
+                                // Auto-whitelist: when manually unbanning, add to whitelist to prevent re-ban
+                                const wasWhitelisted = this.blocker.addToWhitelist(ip);
 
                                 if (query.id) {
-                                    this.bot?.answerCallbackQuery(query.id, { text: `IP ${ip} Unbanned!` }).catch(() => { });
-                                    this.sendToChat(query.message!.chat.id, `✅ **IP UNBANNED:** ${ip}`, { parse_mode: 'Markdown' });
+                                    this.bot?.answerCallbackQuery(query.id, { text: `IP ${ip} Unbanned & Whitelisted!` }).catch(() => { });
+                                    const msg = wasWhitelisted
+                                        ? `✅ **IP UNBANNED & WHITELISTED:** \`${ip}\`\n_This IP will not be banned again._`
+                                        : `✅ **IP UNBANNED:** \`${ip}\` (already whitelisted)`;
+                                    this.sendToChat(query.message!.chat.id, msg, {
+                                        parse_mode: 'Markdown',
+                                        reply_markup: {
+                                            inline_keyboard: [[{ text: `🗑️ Remove ${ip} from Whitelist`, callback_data: `unwl_${ip}` }]]
+                                        }
+                                    });
+                                }
+                            } else if (action.startsWith('unwl_')) {
+                                // Remove from whitelist via inline button
+                                const ip = action.split('_')[1];
+                                const removed = this.blocker.removeFromWhitelist(ip);
+                                if (query.id) {
+                                    this.bot?.answerCallbackQuery(query.id, { text: removed ? `${ip} removed from whitelist` : `${ip} was not whitelisted` }).catch(() => { });
+                                    if (removed) {
+                                        this.sendToChat(query.message!.chat.id, `🗑️ **Removed** \`${ip}\` from whitelist. It can be banned again if suspicious.`, { parse_mode: 'Markdown' });
+                                    }
                                 }
                             }
                         } catch (e: any) {
