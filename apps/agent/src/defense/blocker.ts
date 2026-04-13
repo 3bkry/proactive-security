@@ -209,9 +209,10 @@ export class Blocker {
         immediate?: boolean;
     }): Promise<{ action: BlockAction; record: BlockRecord } | null> {
         const { realIP, risk, immediate } = params;
+        const isManual = params.source === 'telegram';
 
         // ── Safety Checks ──
-        if (await this.isSafe(realIP, params.userAgent)) return null;
+        if (await this.isSafe(realIP, params.userAgent, isManual)) return null;
 
         // Already permanently blocked → skip
         const existing = this.activeBlocks.get(realIP);
@@ -361,7 +362,7 @@ export class Blocker {
 
     // ── Safety Checks ──────────────────────────────────────────────
 
-    private async isSafe(ip: string, userAgent: string | null): Promise<boolean> {
+    private async isSafe(ip: string, userAgent: string | null, isManual: boolean = false): Promise<boolean> {
         // Loopback
         if (ip === '127.0.0.1' || ip === '::1' || ip === '0.0.0.0' || ip === 'localhost') {
             return true;
@@ -386,6 +387,9 @@ export class Blocker {
             }
         }
 
+        // Bypass remaining checks if triggered manually
+        if (isManual) return false;
+
         // Cloudflare IP (never ban proxy IPs)
         if (isCloudflareIP(ip)) {
             log(`[Blocker] 🛡️ SAFETY: Skipping Cloudflare proxy IP ${ip}`);
@@ -401,7 +405,35 @@ export class Blocker {
             }
         }
 
+        // Final deep check: Whois lookup to catch out-of-date CF ranges or unverified Google IPs
+        if (await this.isSafeWhois(ip)) {
+            return true;
+        }
+
         return false;
+    }
+
+    /**
+     * Run a real-time whois lookup before applying a ban to catch any Cloudflare/Google IPs
+     * that might have slipped past the static CIDR checks.
+     */
+    private async isSafeWhois(ip: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            exec(`whois ${ip}`, { timeout: 5000 }, (error, stdout) => {
+                if (error) {
+                    // If whois fails, we can't verify it, so we don't consider it safe based on whois
+                    resolve(false);
+                    return;
+                }
+                const output = stdout.toLowerCase();
+                if (output.includes('cloudflare') || output.includes('google')) {
+                    log(`[Blocker] 🛡️ SAFETY: Whois lookup revealed Cloudflare/Google ownership. Skipping auto-ban for ${ip}`);
+                    resolve(true);
+                } else {
+                    resolve(false);
+                }
+            });
+        });
     }
 
     private looksLikeBot(ua: string): boolean {
