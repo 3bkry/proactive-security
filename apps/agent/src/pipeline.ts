@@ -20,6 +20,7 @@ import { OWASPScanner, type OWASPMatch } from './rules.js';
 import { AIManager } from './ai.js';
 import { TelegramNotifier } from './telegram.js';
 import { emitSecurityEvent } from './logging/structured.js';
+import { recordBan } from './defense/ban-report.js';
 import type { BlockAction } from './defense/types.js';
 
 // ── HTTP Log Parsing Helpers ────────────────────────────────────
@@ -194,6 +195,23 @@ export async function processLogLine(line: string, filePath: string): Promise<vo
                     telegram.notifyBan(realIP, `${rateVerdict.reason!} [Score: ${scoreResult.currentScore.toFixed(0)}, ${scoreResult.eventCount} events]${dryLabel}`, method);
                     emitBlockEvent(result.action, result.record.reason, resolved, httpFields, filePath);
                     broadcastAlert(wss, 'HIGH', `${rateVerdict.reason!}${dryLabel}`, realIP, filePath);
+
+                    // Record to ban report
+                    recordBan({
+                        timestamp: new Date().toISOString(),
+                        ip: realIP,
+                        action: result.action,
+                        risk: 'HIGH',
+                        reason: rateVerdict.reason!,
+                        score: scoreResult.currentScore,
+                        eventCount: scoreResult.eventCount,
+                        blockMethod: method,
+                        source: filePath,
+                        rawLogLine: trimmed,
+                        endpoint: httpFields.endpoint,
+                        method: httpFields.method,
+                        userAgent: httpFields.userAgent,
+                    });
                 }
             } else if (!isWarmingUp) {
                 // Score didn't cross threshold — just log
@@ -389,6 +407,23 @@ export async function processLogLine(line: string, filePath: string): Promise<vo
                                 score: scoreResult.currentScore, eventCount: scoreResult.eventCount,
                             });
                         }
+
+                        // Record to ban report
+                        recordBan({
+                            timestamp: new Date().toISOString(),
+                            ip: attackerIP,
+                            action: blockResult.action,
+                            risk: result.risk,
+                            reason: result.summary,
+                            score: scoreResult.currentScore,
+                            eventCount: scoreResult.eventCount,
+                            blockMethod: method,
+                            source: filePath,
+                            rawLogLine: trimmed,
+                            endpoint: httpFields.endpoint,
+                            method: httpFields.method,
+                            userAgent: httpFields.userAgent,
+                        });
                     }
                 }
             }

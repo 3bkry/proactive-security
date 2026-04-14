@@ -285,6 +285,52 @@ telegram.onCommand("banned", () => {
     telegram.sendMessage(msg, options);
 });
 
+// ── Ban Report Command ──────────────────────────────────────────
+import { loadBanReports, getRecentBans, getBansForIP, getBanCount, formatReportForTelegram } from './defense/ban-report.js';
+loadBanReports(); // Load persisted ban reports on startup
+
+telegram.onCommand("report", (msg) => {
+    const cmdArgs = msg.text?.split(" ") || [];
+    const arg = cmdArgs[1]; // optional: number (limit) or IP address
+
+    // /report <IP> — show bans for a specific IP
+    if (arg && /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(arg)) {
+        const bans = getBansForIP(arg);
+        if (bans.length === 0) {
+            telegram.sendMessage(`📋 No ban records found for \`${arg}\`.`);
+            return;
+        }
+        const header = `📋 *Ban Reports for* \`${arg}\` *(${bans.length} total)*\n\n`;
+        // Show up to 5 for a specific IP
+        const entries = bans.slice(0, 5).map((b, i) => formatReportForTelegram(b, i + 1)).join("\n\n─────────────────\n\n");
+        telegram.sendMessage(header + entries);
+        return;
+    }
+
+    // /report [N] — show last N bans (default 5)
+    const limit = arg ? Math.min(parseInt(arg, 10) || 5, 20) : 5;
+    const bans = getRecentBans(limit);
+    const total = getBanCount();
+
+    if (bans.length === 0) {
+        telegram.sendMessage("📋 *No ban records yet.* The system hasn't banned any IPs since the report module was activated.");
+        return;
+    }
+
+    const header = `📋 *Ban Report — Last ${bans.length} of ${total} total*\n\n`;
+    const entries = bans.map((b, i) => formatReportForTelegram(b, i + 1)).join("\n\n─────────────────\n\n");
+
+    // Telegram has a 4096 char limit — split if needed
+    const fullMsg = header + entries;
+    if (fullMsg.length > 4000) {
+        // Send header + first 3 entries
+        const shortEntries = bans.slice(0, 3).map((b, i) => formatReportForTelegram(b, i + 1)).join("\n\n─────────────────\n\n");
+        telegram.sendMessage(header + shortEntries + `\n\n_...${total - 3} more records. Use_ \`/report <IP>\` _for details._`);
+    } else {
+        telegram.sendMessage(fullMsg);
+    }
+});
+
 telegram.onCommand("whitelist", (msg) => {
     const cmdArgs = msg.text?.split(" ") || [];
     const action = cmdArgs[1]; // add, remove, list
