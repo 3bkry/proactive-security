@@ -322,6 +322,49 @@ telegram.onCommand("whitelist", (msg) => {
     }
 });
 
+telegram.onCommand("safelist", (msg) => {
+    const cmdArgs = msg.text?.split(" ") || [];
+    const action = cmdArgs[1]; // add, remove, list
+    const keyword = cmdArgs.slice(2).join(" "); // allow multi-word keywords like "te data"
+
+    if (!action || action === "list") {
+        const { baseline, custom } = blocker.getSafeKeywords();
+        let message = `🛡️ *Safe ISP Keywords (Whois Protection)*\n\n`;
+        message += `*Built-in (always protected):*\n` + baseline.map(k => `• \`${k}\``).join("\n");
+        if (custom.length > 0) {
+            message += `\n\n*Custom (your additions):*\n` + custom.map(k => `• \`${k}\``).join("\n");
+        } else {
+            message += `\n\n_No custom keywords added yet._`;
+        }
+        message += `\n\n💡 _Use_ \`/safelist add <keyword>\` _to protect an ISP._`;
+        telegram.sendMessage(message);
+        return;
+    }
+
+    if (!keyword) {
+        telegram.sendMessage("⚠️ Usage: `/safelist <add|remove> <keyword>`\n\nExample: `/safelist add te data`");
+        return;
+    }
+
+    if (action === "add") {
+        const added = blocker.addSafeKeyword(keyword);
+        if (added) {
+            telegram.sendMessage(`✅ Added \`${keyword}\` to safe ISP list.\n_IPs matching this in whois won't be auto-banned._`);
+        } else {
+            telegram.sendMessage(`ℹ️ \`${keyword}\` is already in the safe list (or is a built-in keyword).`);
+        }
+    } else if (action === "remove") {
+        const removed = blocker.removeSafeKeyword(keyword);
+        if (removed) {
+            telegram.sendMessage(`🗑️ Removed \`${keyword}\` from safe ISP list.`);
+        } else {
+            telegram.sendMessage(`ℹ️ \`${keyword}\` was not in the custom safe list (built-in keywords can't be removed).`);
+        }
+    } else {
+        telegram.sendMessage("⚠️ Usage: `/safelist <add|remove|list> [keyword]`");
+    }
+});
+
 telegram.onCommand("watch", (msg) => {
     const cmdArgs = msg.text?.split(" ") || [];
     const action = cmdArgs[1];

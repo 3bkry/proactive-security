@@ -88,6 +88,7 @@ export class Blocker {
         }
 
         this.loadState();
+        this.loadSafeKeywords();
 
         // Cleanup expired blocks every 60 seconds
         const cleanup = setInterval(() => this.cleanupExpired(), 60 * 1000);
@@ -414,33 +415,86 @@ export class Blocker {
     }
 
     /**
-     * Protected organizations — if whois output contains any of these keywords,
-     * the IP will NOT be auto-banned. Manual bans via Telegram still work.
-     *
-     * Covers: CDNs, cloud providers, Egyptian ISPs, major search engines.
+     * Hardcoded baseline — these are never removed. CDN/Cloud only.
+     * Everything else is managed dynamically via Telegram /safelist command.
      */
-    private static readonly WHOIS_SAFE_KEYWORDS: string[] = [
-        // CDN / Cloud
+    private static readonly WHOIS_BASELINE_KEYWORDS: string[] = [
         'cloudflare',
         'google',
         'microsoft',
         'amazon',
         'akamai',
-        // Egyptian Telecoms (ISPs — your users connect through these)
-        'te data',
-        'tedata',
-        'telecom egypt',
-        'telecom-egypt',
-        'orange egypt',
-        'vodafone egypt',
-        'vodafone-eg',
-        'etisalat misr',
-        'etisalat',
-        'link egypt',
-        'linkdotnet',
-        'noor',                    // Noor ADSL (Egypt)
-        'country:        eg',      // Any Egyptian allocation
     ];
+
+    /** Dynamic user-managed keywords — persisted to disk */
+    private dynamicSafeKeywords: string[] = [];
+    private static readonly SAFE_ISP_FILE = path.join(SENTINEL_DATA_DIR, 'safe_isps.json');
+
+    /** Load dynamic keywords from disk on startup */
+    private loadSafeKeywords(): void {
+        try {
+            if (fs.existsSync(Blocker.SAFE_ISP_FILE)) {
+                const data = JSON.parse(fs.readFileSync(Blocker.SAFE_ISP_FILE, 'utf-8'));
+                if (Array.isArray(data)) {
+                    this.dynamicSafeKeywords = data.map((k: string) => k.toLowerCase().trim());
+                    log(`[Blocker] Loaded ${this.dynamicSafeKeywords.length} custom safe ISP keywords.`);
+                }
+            }
+        } catch (e) {
+            log(`[Blocker] ⚠️ Failed to load safe ISP keywords: ${e}`);
+        }
+    }
+
+    /** Persist dynamic keywords to disk */
+    private persistSafeKeywords(): void {
+        try {
+            const dir = path.dirname(Blocker.SAFE_ISP_FILE);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            fs.writeFileSync(Blocker.SAFE_ISP_FILE, JSON.stringify(this.dynamicSafeKeywords, null, 2));
+        } catch (e) {
+            log(`[Blocker] ⚠️ Failed to persist safe ISP keywords: ${e}`);
+        }
+    }
+
+    /** Get the merged list (baseline + dynamic) */
+    private getAllSafeKeywords(): string[] {
+        return [...Blocker.WHOIS_BASELINE_KEYWORDS, ...this.dynamicSafeKeywords];
+    }
+
+    // ── Public API for Telegram /safelist command ──
+
+    /** Add a keyword to the dynamic safe list */
+    public addSafeKeyword(keyword: string): boolean {
+        const normalized = keyword.toLowerCase().trim();
+        if (!normalized) return false;
+        if (Blocker.WHOIS_BASELINE_KEYWORDS.includes(normalized)) return false;
+        if (this.dynamicSafeKeywords.includes(normalized)) return false;
+        this.dynamicSafeKeywords.push(normalized);
+        this.persistSafeKeywords();
+        this.whoisCache.clear();
+        log(`[Blocker] ✅ Added safe ISP keyword: "${normalized}"`);
+        return true;
+    }
+
+    /** Remove a keyword from the dynamic safe list */
+    public removeSafeKeyword(keyword: string): boolean {
+        const normalized = keyword.toLowerCase().trim();
+        const idx = this.dynamicSafeKeywords.indexOf(normalized);
+        if (idx === -1) return false;
+        this.dynamicSafeKeywords.splice(idx, 1);
+        this.persistSafeKeywords();
+        this.whoisCache.clear();
+        log(`[Blocker] 🗑️ Removed safe ISP keyword: "${normalized}"`);
+        return true;
+    }
+
+    /** Get all safe keywords (baseline + dynamic, labelled) */
+    public getSafeKeywords(): { baseline: string[]; custom: string[] } {
+        return {
+            baseline: [...Blocker.WHOIS_BASELINE_KEYWORDS],
+            custom: [...this.dynamicSafeKeywords],
+        };
+    }
 
     /** Cache whois results for 10 minutes to avoid hammering whois servers */
     private whoisCache: Map<string, { safe: boolean; org: string; ts: number }> = new Map();
@@ -448,10 +502,9 @@ export class Blocker {
 
     /**
      * Run a real-time whois lookup before applying a ban.
-     * Checks the org/netname against WHOIS_SAFE_KEYWORDS.
+     * Checks against merged baseline + dynamic keywords.
      */
     private async isSafeWhois(ip: string): Promise<boolean> {
-        // Check cache first
         const cached = this.whoisCache.get(ip);
         if (cached && Date.now() - cached.ts < Blocker.WHOIS_CACHE_TTL) {
             if (cached.safe) {
@@ -459,6 +512,8 @@ export class Blocker {
             }
             return cached.safe;
         }
+
+        const allKeywords = this.getAllSafeKeywords();
 
         return new Promise((resolve) => {
             exec(`whois ${ip}`, { timeout: 8000 }, (error, stdout) => {
@@ -469,9 +524,8 @@ export class Blocker {
                 }
                 const output = stdout.toLowerCase();
 
-                for (const keyword of Blocker.WHOIS_SAFE_KEYWORDS) {
+                for (const keyword of allKeywords) {
                     if (output.includes(keyword)) {
-                        // Extract org name for logging
                         const orgMatch = stdout.match(/(?:OrgName|org-name|descr|netname):\s*(.+)/i);
                         const orgName = orgMatch ? orgMatch[1].trim() : keyword;
 

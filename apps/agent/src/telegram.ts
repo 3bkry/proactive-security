@@ -144,6 +144,7 @@ export class TelegramNotifier {
                             `/stats - AI analysis & cost stats\n` +
                             `/banned - List blocked IPs\n` +
                             `/whitelist <add|remove|list> [ip] - Manage IP whitelist\n` +
+                            `/safelist <add|remove|list> [keyword] - Manage safe ISP keywords (whois protection)\n` +
                             `/watch <add|remove|list> [path] - Manage watched files\n` +
                             `/config <cpu|memory|disk> <val> - Set alert thresholds\n` +
                             `/help - Show this message`;
