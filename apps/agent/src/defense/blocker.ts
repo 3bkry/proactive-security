@@ -414,24 +414,76 @@ export class Blocker {
     }
 
     /**
-     * Run a real-time whois lookup before applying a ban to catch any Cloudflare/Google IPs
-     * that might have slipped past the static CIDR checks.
+     * Protected organizations — if whois output contains any of these keywords,
+     * the IP will NOT be auto-banned. Manual bans via Telegram still work.
+     *
+     * Covers: CDNs, cloud providers, Egyptian ISPs, major search engines.
+     */
+    private static readonly WHOIS_SAFE_KEYWORDS: string[] = [
+        // CDN / Cloud
+        'cloudflare',
+        'google',
+        'microsoft',
+        'amazon',
+        'akamai',
+        // Egyptian Telecoms (ISPs — your users connect through these)
+        'te data',
+        'tedata',
+        'telecom egypt',
+        'telecom-egypt',
+        'orange egypt',
+        'vodafone egypt',
+        'vodafone-eg',
+        'etisalat misr',
+        'etisalat',
+        'link egypt',
+        'linkdotnet',
+        'noor',                    // Noor ADSL (Egypt)
+        'country:        eg',      // Any Egyptian allocation
+    ];
+
+    /** Cache whois results for 10 minutes to avoid hammering whois servers */
+    private whoisCache: Map<string, { safe: boolean; org: string; ts: number }> = new Map();
+    private static readonly WHOIS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+    /**
+     * Run a real-time whois lookup before applying a ban.
+     * Checks the org/netname against WHOIS_SAFE_KEYWORDS.
      */
     private async isSafeWhois(ip: string): Promise<boolean> {
+        // Check cache first
+        const cached = this.whoisCache.get(ip);
+        if (cached && Date.now() - cached.ts < Blocker.WHOIS_CACHE_TTL) {
+            if (cached.safe) {
+                log(`[Blocker] 🛡️ SAFETY (cached): ${ip} belongs to ${cached.org}. Skipping auto-ban.`);
+            }
+            return cached.safe;
+        }
+
         return new Promise((resolve) => {
-            exec(`whois ${ip}`, { timeout: 5000 }, (error, stdout) => {
+            exec(`whois ${ip}`, { timeout: 8000 }, (error, stdout) => {
                 if (error) {
-                    // If whois fails, we can't verify it, so we don't consider it safe based on whois
+                    this.whoisCache.set(ip, { safe: false, org: 'unknown', ts: Date.now() });
                     resolve(false);
                     return;
                 }
                 const output = stdout.toLowerCase();
-                if (output.includes('cloudflare') || output.includes('google')) {
-                    log(`[Blocker] 🛡️ SAFETY: Whois lookup revealed Cloudflare/Google ownership. Skipping auto-ban for ${ip}`);
-                    resolve(true);
-                } else {
-                    resolve(false);
+
+                for (const keyword of Blocker.WHOIS_SAFE_KEYWORDS) {
+                    if (output.includes(keyword)) {
+                        // Extract org name for logging
+                        const orgMatch = stdout.match(/(?:OrgName|org-name|descr|netname):\s*(.+)/i);
+                        const orgName = orgMatch ? orgMatch[1].trim() : keyword;
+
+                        log(`[Blocker] 🛡️ SAFETY: Whois revealed "${orgName}" for ${ip}. Skipping auto-ban.`);
+                        this.whoisCache.set(ip, { safe: true, org: orgName, ts: Date.now() });
+                        resolve(true);
+                        return;
+                    }
                 }
+
+                this.whoisCache.set(ip, { safe: false, org: 'other', ts: Date.now() });
+                resolve(false);
             });
         });
     }
