@@ -79,9 +79,16 @@ export function recordBan(entry: BanReportEntry): void {
     log(`[BanReport] 📝 Recorded ban for ${entry.ip} (${entry.action})`);
 }
 
-/** Get recent ban reports */
-export function getRecentBans(limit: number = 10): BanReportEntry[] {
+/** Get recent ban reports (paginated) */
+export function getRecentBans(limit: number = 50): BanReportEntry[] {
     return reports.slice(0, limit);
+}
+
+/** Get a page of ban reports (0-indexed page, pageSize entries per page) */
+export function getRecentBansPage(page: number, pageSize: number = 50): { entries: BanReportEntry[]; total: number; hasMore: boolean } {
+    const start = page * pageSize;
+    const entries = reports.slice(start, start + pageSize);
+    return { entries, total: reports.length, hasMore: start + pageSize < reports.length };
 }
 
 /** Get ban reports for a specific IP */
@@ -94,7 +101,17 @@ export function getBanCount(): number {
     return reports.length;
 }
 
-/** Format a report entry for Telegram display */
+/** Compact one-line summary for list views (fits ~50 per Telegram message) */
+export function formatReportCompact(entry: BanReportEntry, index: number): string {
+    const time = new Date(entry.timestamp).toLocaleString('en-GB', {
+        timeZone: 'Africa/Cairo',
+        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    });
+    const reasonShort = entry.reason.length > 40 ? entry.reason.substring(0, 40) + '…' : entry.reason;
+    return `${index}. \`${entry.ip}\` | ${entry.action} | ${time} | ${reasonShort}`;
+}
+
+/** Full detailed format for single-IP lookup */
 export function formatReportForTelegram(entry: BanReportEntry, index: number): string {
     const time = new Date(entry.timestamp).toLocaleString('en-GB', { timeZone: 'Africa/Cairo' });
     const rawPreview = entry.rawLogLine.length > 200

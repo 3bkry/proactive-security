@@ -130,6 +130,14 @@ export class TelegramNotifier {
                                         this.sendToChat(query.message!.chat.id, `🗑️ **Removed** \`${ip}\` from whitelist. It can be banned again if suspicious.`, { parse_mode: 'Markdown' });
                                     }
                                 }
+                            } else if (action.startsWith('rpt_')) {
+                                // Load more ban report pages
+                                const page = parseInt(action.split('_')[1], 10);
+                                if (query.id) {
+                                    this.bot?.answerCallbackQuery(query.id, { text: `Loading page ${page + 1}...` }).catch(() => { });
+                                }
+                                // Emit a custom event that index.ts can listen to
+                                this.bot?.emit('report_page', page);
                             }
                         } catch (e: any) {
                             log(`[Telegram] ⚠️ Callback error (safe to ignore): ${e.message}`);
@@ -163,6 +171,11 @@ export class TelegramNotifier {
             if (String(msg.chat.id) !== String(this.chatId)) return;
             handler(msg);
         });
+    }
+
+    /** Register a callback for custom events emitted from inline button handlers */
+    public onCallback(event: string, handler: (...args: any[]) => void) {
+        this.bot?.on(event as any, handler);
     }
 
     // Levenshtein distance for similarity check
