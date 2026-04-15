@@ -82,7 +82,8 @@ export class TelegramNotifier {
 
                             if (action.startsWith('ban_')) {
                                 const ip = action.split('_')[1];
-                                await this.blocker.evaluate({ ip, realIP: ip, proxyIP: null, userAgent: null, endpoint: null, method: null, risk: 'HIGH', reason: 'Manual Ban via Telegram', source: 'telegram', immediate: true });
+                                // Manual bans are always CRITICAL → permanent ban
+                                await this.blocker.evaluate({ ip, realIP: ip, proxyIP: null, userAgent: null, endpoint: null, method: null, risk: 'CRITICAL', reason: 'Manual Permanent Ban via Telegram', source: 'telegram', immediate: true });
 
                                 if (query.id) {
                                     this.bot?.answerCallbackQuery(query.id, { text: `IP ${ip} Banned!` }).catch(() => { });

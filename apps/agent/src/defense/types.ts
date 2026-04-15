@@ -46,10 +46,10 @@ export interface RateLimitVerdict {
 /** Configurable defense thresholds */
 export interface DefenseConfig {
     // Progressive blocking
-    tempBlockDurationMin: number;   // default: 30 (was 10)
-    tempBlockDurationMax: number;   // default: 60 (was 30)
-    offenseWindowSec: number;       // default: 300 (was 60) — wider evidence window
-    permBlockAfterTempBlocks: number; // default: 5 (was 3) — need more evidence
+    tempBlockDurationMin: number;   // default: 1440 (24 hours)
+    tempBlockDurationMax: number;   // default: 1440 (24 hours)
+    offenseWindowSec: number;       // default: 86400 (24h) — keeps strike history
+    permBlockAfterTempBlocks: number; // default: 2 — banned twice = permanent
 
     // Rate limiting (tuned for less aggression)
     rateLimit_requestsPerSec: number;  // default: 200 (was 100)
@@ -63,11 +63,11 @@ export interface DefenseConfig {
 }
 
 export const DEFAULT_DEFENSE_CONFIG: DefenseConfig = {
-    // Slower escalation: give more time to accumulate evidence
-    tempBlockDurationMin: 30,
-    tempBlockDurationMax: 60,
-    offenseWindowSec: 300,
-    permBlockAfterTempBlocks: 5,
+    // 24-hour temp bans — long enough to stop attacks, short enough for legit ISP rotation
+    tempBlockDurationMin: 1440,   // 24 hours (in minutes)
+    tempBlockDurationMax: 1440,   // 24 hours (fixed, no randomness needed)
+    offenseWindowSec: 86400,      // 24 hours — keep strike history between temp bans
+    permBlockAfterTempBlocks: 2,  // 2 strikes = permanent
 
     // Less aggressive rate limits
     rateLimit_requestsPerSec: 200,
