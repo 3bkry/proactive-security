@@ -221,57 +221,40 @@ export class Blocker {
             return null;
         }
 
-        // ── Determine Action ──
+        // ── Progressive Escalation Table ──
+        // Each re-offense gets a longer ban. 5th strike = permanent.
+        //   1st → 1 hour
+        //   2nd → 4 hours
+        //   3rd → 24 hours
+        //   4th → 72 hours
+        //   5th+ → PERMANENT
         let action: BlockAction;
+        const offenseCount = (this.tempBlockCounts.get(realIP) || 0) + 1;
+        this.tempBlockCounts.set(realIP, offenseCount);
 
-        if (immediate || risk === 'CRITICAL' || risk === 'HIGH') {
-            // Determine action severity
-            const tempCount = this.tempBlockCounts.get(realIP) || 0;
-            if (risk === 'CRITICAL') {
-                // CRITICAL = always permanent (e.g. known exploit payloads)
-                action = 'perm_block';
-            } else if (tempCount >= this.config.permBlockAfterTempBlocks) {
-                // Repeated offender → escalate to permanent
-                action = 'perm_block';
-            } else {
-                // HIGH / immediate → temp block first
-                action = 'temp_block';
-                this.tempBlockCounts.set(realIP, tempCount + 1);
-            }
+        if (risk === 'CRITICAL') {
+            // CRITICAL = always permanent (exploit payloads, manual Telegram bans)
+            action = 'perm_block';
+        } else if (offenseCount >= Blocker.ESCALATION_DURATIONS.length + 1) {
+            // Exceeded escalation table → permanent
+            action = 'perm_block';
         } else {
-            // Progressive: check offense history
-            const now = Date.now();
-            const offense = this.offenses.get(realIP);
-
-            if (!offense || (now - offense.lastSeen > this.config.offenseWindowSec * 1000)) {
-                // First offense (or outside window) → log only
-                this.offenses.set(realIP, {
-                    count: 1,
-                    firstSeen: now,
-                    lastSeen: now,
-                    actions: ['logged'],
-                });
-                action = 'logged';
-            } else {
-                // Repeated offense within window → temp block
-                offense.count++;
-                offense.lastSeen = now;
-                offense.actions.push('temp_block');
-                this.offenses.set(realIP, offense);
-
-                const tempCount = (this.tempBlockCounts.get(realIP) || 0) + 1;
-                this.tempBlockCounts.set(realIP, tempCount);
-
-                if (tempCount >= this.config.permBlockAfterTempBlocks) {
-                    action = 'perm_block';
-                } else {
-                    action = 'temp_block';
-                }
-            }
+            action = 'temp_block';
         }
 
         // ── Select Blocking Method ──
         const blockMethod = this.selectBlockMethod(params.proxyIP);
+
+        // ── Calculate Duration ──
+        const banDurationMs = action === 'temp_block'
+            ? Blocker.getEscalationDuration(offenseCount)
+            : null; // perm_block has no expiry
+
+        const banDurationLabel = banDurationMs
+            ? (banDurationMs >= 3600000 ? `${Math.round(banDurationMs / 3600000)}h` : `${Math.round(banDurationMs / 60000)}m`)
+            : 'PERMANENT';
+
+        log(`[Blocker] 🔒 ${realIP}: Offense #${offenseCount} → ${action} for ${banDurationLabel}`);
 
         // ── Build Record ──
         const record: BlockRecord = {
@@ -283,12 +266,12 @@ export class Blocker {
             method: params.method,
             timestamp: Date.now(),
             action,
-            reason: params.reason,
+            reason: `[#${offenseCount}] ${params.reason}`,
             risk: params.risk,
             source: params.source,
-            expiresAt: action === 'temp_block'
-                ? Date.now() + this.randomTempBlockDuration()
-                : action === 'perm_block' ? null : null,
+            expiresAt: action === 'temp_block' && banDurationMs
+                ? Date.now() + banDurationMs
+                : null,
             blockMethod,
         };
 
@@ -296,20 +279,32 @@ export class Blocker {
         if (action === 'temp_block' || action === 'perm_block') {
             this.activeBlocks.set(realIP, record);
             if (this._dryRun) {
-                log(`[Blocker] 🔶 DRY RUN: Would ${action} ${realIP} via ${blockMethod} — skipping`);
+                log(`[Blocker] 🔶 DRY RUN: Would ${action} ${realIP} via ${blockMethod} for ${banDurationLabel} — skipping`);
             } else {
                 await this.executeBlock(realIP, blockMethod, params.reason, record);
             }
-            this.saveState(record); // Save individual record
+            this.saveState(record);
         }
 
         return { action, record };
     }
 
-    private randomTempBlockDuration(): number {
-        const min = this.config.tempBlockDurationMin * 60 * 1000;
-        const max = this.config.tempBlockDurationMax * 60 * 1000;
-        return Math.floor(Math.random() * (max - min)) + min;
+    /**
+     * Progressive escalation durations (in milliseconds).
+     * Index 0 = 1st offense, index 1 = 2nd offense, etc.
+     * Beyond this table → permanent ban.
+     */
+    private static readonly ESCALATION_DURATIONS: number[] = [
+        1  * 60 * 60 * 1000, // 1st: 1 hour
+        4  * 60 * 60 * 1000, // 2nd: 4 hours
+        24 * 60 * 60 * 1000, // 3rd: 24 hours
+        72 * 60 * 60 * 1000, // 4th: 72 hours
+    ];
+
+    /** Get the ban duration for a given offense number (1-indexed) */
+    private static getEscalationDuration(offenseNumber: number): number {
+        const idx = Math.min(offenseNumber - 1, Blocker.ESCALATION_DURATIONS.length - 1);
+        return Blocker.ESCALATION_DURATIONS[idx];
     }
 
     // ── Known Service IP Ranges (Never Ban) ─────────────────────────
