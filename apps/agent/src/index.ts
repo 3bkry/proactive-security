@@ -286,17 +286,17 @@ telegram.onCommand("banned", () => {
 });
 
 // ── Ban Report Command ──────────────────────────────────────────
-import { loadBanReports, getRecentBansPage, getBansForIP, getBanCount, formatReportCompact, formatReportForTelegram } from './defense/ban-report.js';
+import { loadBanReports, getRecentBansPage, getBansForIP, getBanCount, formatReportEntry } from './defense/ban-report.js';
 loadBanReports(); // Load persisted ban reports on startup
 
 const PAGE_SIZE = 50;
 
-/** Send a page of ban reports */
+/** Send a page of ban reports (full detail) */
 function sendReportPage(page: number) {
     const { entries, total, hasMore } = getRecentBansPage(page, PAGE_SIZE);
 
     if (entries.length === 0 && page === 0) {
-        telegram.sendMessage("📋 No ban records yet. The system hasn't banned any IPs since the report module was activated.", {});
+        telegram.sendMessage("📋 No ban records yet.", {});
         return;
     }
     if (entries.length === 0) {
@@ -308,30 +308,28 @@ function sendReportPage(page: number) {
     const to = page * PAGE_SIZE + entries.length;
     const header = `📋 Ban Report — ${from}-${to} of ${total}\n\n`;
 
-    // Build compact list
-    const lines = entries.map((b, i) => formatReportCompact(b, from + i));
-
-    // Split into chunks that fit Telegram's 4096 char limit
+    // Build detailed entries, splitting into messages at ~3800 chars
     let chunk = header;
-    for (const line of lines) {
-        if (chunk.length + line.length + 2 > 3900) {
+    for (let i = 0; i < entries.length; i++) {
+        const entry = formatReportEntry(entries[i], from + i);
+        const separator = '\n─────────────────\n';
+
+        if (chunk.length + entry.length + separator.length > 3800) {
             telegram.sendMessage(chunk, {});
             chunk = '';
         }
-        chunk += line + '\n';
+        chunk += entry + separator;
     }
 
     // Send last chunk with "Load More" button if there are more
     const opts: any = {};
     if (hasMore) {
+        chunk += `\n💡 Use /report <IP> for full details on any IP.`;
         opts.reply_markup = {
             inline_keyboard: [[{ text: `📄 Load More (${to + 1}–${Math.min(to + PAGE_SIZE, total)})`, callback_data: `rpt_${page + 1}` }]]
         };
     }
     if (chunk) {
-        if (hasMore) {
-            chunk += `\n💡 Use /report <IP> for full details on any IP.`;
-        }
         telegram.sendMessage(chunk, opts);
     }
 }
@@ -351,7 +349,7 @@ telegram.onCommand("report", (msg) => {
         // Show detailed view, split into messages if needed
         let detailMsg = header;
         for (let i = 0; i < Math.min(bans.length, 10); i++) {
-            const entry = formatReportForTelegram(bans[i], i + 1);
+            const entry = formatReportEntry(bans[i], i + 1);
             if (detailMsg.length + entry.length + 30 > 3900) {
                 telegram.sendMessage(detailMsg, {});
                 detailMsg = '';

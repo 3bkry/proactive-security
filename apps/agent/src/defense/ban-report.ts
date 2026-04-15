@@ -101,23 +101,8 @@ export function getBanCount(): number {
     return reports.length;
 }
 
-/** Escape Telegram Markdown V1 special characters */
-function esc(text: string): string {
-    return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
-}
-
-/** Compact one-line summary for list views (fits ~50 per Telegram message) */
-export function formatReportCompact(entry: BanReportEntry, index: number): string {
-    const time = new Date(entry.timestamp).toLocaleString('en-GB', {
-        timeZone: 'Africa/Cairo',
-        day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-    });
-    const reasonShort = entry.reason.length > 40 ? entry.reason.substring(0, 40) + '…' : entry.reason;
-    return `${index}. ${entry.ip} | ${entry.action} | ${time} | ${esc(reasonShort)}`;
-}
-
-/** Full detailed format for single-IP lookup */
-export function formatReportForTelegram(entry: BanReportEntry, index: number): string {
+/** Full detailed format for each ban entry (plain text — no Markdown) */
+export function formatReportEntry(entry: BanReportEntry, index: number): string {
     const time = new Date(entry.timestamp).toLocaleString('en-GB', { timeZone: 'Africa/Cairo' });
     const rawPreview = entry.rawLogLine.length > 200
         ? entry.rawLogLine.substring(0, 200) + '...'
@@ -129,9 +114,8 @@ export function formatReportForTelegram(entry: BanReportEntry, index: number): s
         `🎯 Action: ${entry.action} | Risk: ${entry.risk}\n` +
         `📊 Score: ${Math.round(entry.score)} (${entry.eventCount} events)\n` +
         `🔒 Method: ${entry.blockMethod}\n` +
-        `📌 Reason: ${esc(entry.reason)}\n` +
+        `📌 Reason: ${entry.reason}\n` +
         `📂 Source: ${entry.source}\n` +
-        `📝 Raw Log:\n${esc(rawPreview)}`
+        `📝 Raw Log:\n${rawPreview}`
     );
 }
-
