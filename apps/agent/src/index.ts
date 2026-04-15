@@ -296,17 +296,17 @@ function sendReportPage(page: number) {
     const { entries, total, hasMore } = getRecentBansPage(page, PAGE_SIZE);
 
     if (entries.length === 0 && page === 0) {
-        telegram.sendMessage("📋 *No ban records yet.* The system hasn't banned any IPs since the report module was activated.");
+        telegram.sendMessage("📋 No ban records yet. The system hasn't banned any IPs since the report module was activated.", {});
         return;
     }
     if (entries.length === 0) {
-        telegram.sendMessage("📋 No more records.");
+        telegram.sendMessage("📋 No more records.", {});
         return;
     }
 
     const from = page * PAGE_SIZE + 1;
     const to = page * PAGE_SIZE + entries.length;
-    const header = `📋 *Ban Report — ${from}-${to} of ${total}*\n\n`;
+    const header = `📋 Ban Report — ${from}-${to} of ${total}\n\n`;
 
     // Build compact list
     const lines = entries.map((b, i) => formatReportCompact(b, from + i));
@@ -315,14 +315,14 @@ function sendReportPage(page: number) {
     let chunk = header;
     for (const line of lines) {
         if (chunk.length + line.length + 2 > 3900) {
-            telegram.sendMessage(chunk);
+            telegram.sendMessage(chunk, {});
             chunk = '';
         }
         chunk += line + '\n';
     }
 
     // Send last chunk with "Load More" button if there are more
-    const opts: any = { parse_mode: 'Markdown' };
+    const opts: any = {};
     if (hasMore) {
         opts.reply_markup = {
             inline_keyboard: [[{ text: `📄 Load More (${to + 1}–${Math.min(to + PAGE_SIZE, total)})`, callback_data: `rpt_${page + 1}` }]]
@@ -330,7 +330,7 @@ function sendReportPage(page: number) {
     }
     if (chunk) {
         if (hasMore) {
-            chunk += `\n_💡 Use_ \`/report <IP>\` _for full details on any IP._`;
+            chunk += `\n💡 Use /report <IP> for full details on any IP.`;
         }
         telegram.sendMessage(chunk, opts);
     }
@@ -344,24 +344,24 @@ telegram.onCommand("report", (msg) => {
     if (arg && /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(arg)) {
         const bans = getBansForIP(arg);
         if (bans.length === 0) {
-            telegram.sendMessage(`📋 No ban records found for \`${arg}\`.`);
+            telegram.sendMessage(`📋 No ban records found for ${arg}.`, {});
             return;
         }
-        const header = `📋 *Ban Reports for* \`${arg}\` *(${bans.length} total)*\n\n`;
+        const header = `📋 Ban Reports for ${arg} (${bans.length} total)\n\n`;
         // Show detailed view, split into messages if needed
-        let msg = header;
+        let detailMsg = header;
         for (let i = 0; i < Math.min(bans.length, 10); i++) {
             const entry = formatReportForTelegram(bans[i], i + 1);
-            if (msg.length + entry.length + 30 > 3900) {
-                telegram.sendMessage(msg);
-                msg = '';
+            if (detailMsg.length + entry.length + 30 > 3900) {
+                telegram.sendMessage(detailMsg, {});
+                detailMsg = '';
             }
-            msg += entry + '\n\n─────────────────\n\n';
+            detailMsg += entry + '\n\n─────────────────\n\n';
         }
         if (bans.length > 10) {
-            msg += `_... and ${bans.length - 10} more records._`;
+            detailMsg += `... and ${bans.length - 10} more records.`;
         }
-        if (msg) telegram.sendMessage(msg);
+        if (detailMsg) telegram.sendMessage(detailMsg, {});
         return;
     }
 
