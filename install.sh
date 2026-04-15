@@ -121,19 +121,37 @@ echo ""
 # ─────────────────────────────────────────────────────────────
 # 4. Install & Build
 # ─────────────────────────────────────────────────────────────
-echo -e "${GREEN}📦 Installing packages...${NC}"
+echo -e "${GREEN}📦 Checking packages...${NC}"
 
 # Detect current Node version to ensure native modules match
 NODE_VER_CURRENT=$(node -v)
 echo -e "   Building for Node: ${YELLOW}${NODE_VER_CURRENT}${NC}"
 
-# Force rebuild from source to prevent version mismatch issues
-npm install --production=false --build-from-source 2>&1 | tail -n 10
+# Smart install: skip npm install if package.json/lock haven't changed
+CHECKSUM_FILE="${INSTALL_DIR}/.npm_checksum"
+CURRENT_CHECKSUM=""
+if [ -f "package.json" ] && [ -f "package-lock.json" ]; then
+    CURRENT_CHECKSUM=$(cat package.json package-lock.json | md5sum | cut -d' ' -f1)
+fi
+OLD_CHECKSUM=""
+if [ -f "$CHECKSUM_FILE" ]; then
+    OLD_CHECKSUM=$(cat "$CHECKSUM_FILE")
+fi
 
-echo -e "   ${BLUE}🔧 Rebuilding native modules (better-sqlite3)...${NC}"
-npm rebuild -w packages/core better-sqlite3 --build-from-source
+if [ -d "node_modules" ] && [ "$CURRENT_CHECKSUM" = "$OLD_CHECKSUM" ] && [ -n "$CURRENT_CHECKSUM" ]; then
+    echo -e "   ${GREEN}✔${NC} Dependencies unchanged — skipping npm install (fast update)"
+else
+    echo -e "   ${YELLOW}⚙${NC}  Dependencies changed or first install — running npm install..."
+    npm install --production=false --build-from-source 2>&1 | tail -n 10
 
-echo -e "${GREEN}🔨 Building...${NC}"
+    echo -e "   ${BLUE}🔧 Rebuilding native modules (better-sqlite3)...${NC}"
+    npm rebuild -w packages/core better-sqlite3 --build-from-source
+
+    # Save checksum for next time
+    echo "$CURRENT_CHECKSUM" > "$CHECKSUM_FILE"
+fi
+
+echo -e "${GREEN}🔨 Building TypeScript...${NC}"
 npm run build -w packages/core   2>&1 | tail -1
 npm run build -w packages/cli    2>&1 | tail -1
 npm run build -w apps/agent      2>&1 | tail -1
