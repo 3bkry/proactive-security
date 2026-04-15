@@ -164,6 +164,11 @@ export async function processLogLine(line: string, filePath: string): Promise<vo
         const httpFields = parseHTTPFields(trimmed);
         if (settings.filterHttp && !httpFields.method) return;
 
+        // ── Stage 4.5: Already Blocked — Skip ──
+        // If this IP is already banned, don't waste time re-analyzing it.
+        // Log lines from before the ban took effect may still arrive.
+        if (blocker.isBlocked(realIP)) return;
+
         // ── Stage 5: Rate Limiting ──
         const rateVerdict = rateLimiter.check(realIP, httpFields.endpoint, httpFields.statusCode, httpFields.userAgent);
 

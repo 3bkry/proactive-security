@@ -215,9 +215,9 @@ export class Blocker {
         // ── Safety Checks ──
         if (await this.isSafe(realIP, params.userAgent, isManual)) return null;
 
-        // Already permanently blocked → skip
+        // Already actively blocked (temp or perm) → skip entirely
         const existing = this.activeBlocks.get(realIP);
-        if (existing && existing.action === 'perm_block' && existing.expiresAt === null) {
+        if (existing) {
             return null;
         }
 
