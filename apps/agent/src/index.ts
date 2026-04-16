@@ -696,8 +696,14 @@ async function tailAndWatch(filePath: string) {
 
             if (linesToProcess.length > 0) {
                 log(`[Agent] 🔍 Startup Scan: Checking last ${linesToProcess.length} lines of ${filePath}...`);
-                for (const line of linesToProcess) {
-                    if (line.trim()) await processLogLine(line, filePath);
+                for (let i = 0; i < linesToProcess.length; i++) {
+                    const line = linesToProcess[i];
+                    if (line.trim()) {
+                        await processLogLine(line, filePath);
+                    }
+                    if (i % 100 === 0) {
+                        await new Promise(resolve => setImmediate(resolve));
+                    }
                 }
             }
         }
@@ -744,8 +750,15 @@ watcher.on("file_changed", async (changedPath) => {
 
         const content = buffer.toString('utf-8');
         const lines = content.split('\n');
-        for (const line of lines) {
-            if (line.trim()) await processLogLine(line, changedPath);
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (line.trim()) {
+                await processLogLine(line, changedPath);
+            }
+            // Yield the event loop every 100 lines so Telegram and Dash stay responsive
+            if (i % 100 === 0) {
+                await new Promise(resolve => setImmediate(resolve));
+            }
         }
     } catch (e) {
         log(`[Error] Error reading new log bytes for ${changedPath}: ${e}`);
