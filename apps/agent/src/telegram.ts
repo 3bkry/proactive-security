@@ -139,6 +139,13 @@ export class TelegramNotifier {
                                 }
                                 // Emit a custom event that index.ts can listen to
                                 this.bot?.emit('report_page', page);
+                            } else if (action.startsWith('bnd_')) {
+                                // Load more banned list pages
+                                const page = parseInt(action.split('_')[1], 10);
+                                if (query.id) {
+                                    this.bot?.answerCallbackQuery(query.id, { text: `Loading page ${page + 1}...` }).catch(() => { });
+                                }
+                                this.bot?.emit('bnd_', page.toString());
                             }
                         } catch (e: any) {
                             log(`[Telegram] ⚠️ Callback error (safe to ignore): ${e.message}`);

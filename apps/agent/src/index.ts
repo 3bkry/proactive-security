@@ -253,12 +253,24 @@ telegram.onCommand("stats", () => {
     telegram.sendMessage(msg);
 });
 
-telegram.onCommand("banned", () => {
-    const records = blocker.getBlockRecords();
-    if (records.length === 0) {
-        telegram.sendMessage("✅ *No IPs currently blocked.*");
+const BANNED_PAGE_SIZE = 20;
+
+function sendBannedPage(page: number) {
+    const allRecords = blocker.getBlockRecords();
+    
+    // Sort records descending by timestamp
+    allRecords.sort((a, b) => b.timestamp - a.timestamp);
+
+    if (allRecords.length === 0) {
+        if (page === 0) telegram.sendMessage("✅ *No IPs currently blocked.*", { parse_mode: 'Markdown' });
+        else telegram.sendMessage("📋 No more records.", {});
         return;
     }
+
+    const total = allRecords.length;
+    const startIndex = page * BANNED_PAGE_SIZE;
+    const entries = allRecords.slice(startIndex, startIndex + BANNED_PAGE_SIZE);
+    const hasMore = startIndex + BANNED_PAGE_SIZE < total;
 
     const methodIcons: Record<string, string> = {
         'cloudflare_api': '☁️',
@@ -267,22 +279,54 @@ telegram.onCommand("banned", () => {
         'iptables': '🔥',
     };
 
-    const lines = records.map(r => {
+    const from = startIndex + 1;
+    const to = startIndex + entries.length;
+    let msg = `🚫 *Blocked IPs (${from}-${to} of ${total})*\n\n`;
+
+    const lines = entries.map((r, i) => {
         const icon = methodIcons[r.blockMethod || 'iptables'] || '🔥';
-        const type = r.action === 'perm_block' ? '🔴 PERM' : '🟡 TEMP';
-        return `• \`${r.ip}\` ${icon} ${type}`;
+        const type = r.action === 'perm_block' ? '🔴 PERM ' : '🟡 TEMP ';
+        const time = new Date(r.timestamp).toLocaleString('en-GB', { timeZone: 'Africa/Cairo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        
+        let extra = '';
+        if (r.expiresAt) {
+            const hoursLeft = Math.max(0, Math.round((r.expiresAt - Date.now()) / (1000 * 60 * 60)));
+            extra = ` (expires ~${hoursLeft}h)`;
+        }
+        
+        return `${from + i}. \`${r.ip}\` ${icon} ${type}\n   └ ⏰ ${time}${extra}`;
     });
 
-    const msg = `🚫 *Blocked IPs (${records.length})*\n\n` + lines.join("\n");
+    msg += lines.join("\n\n");
 
-    const options: any = { parse_mode: 'Markdown' };
-    if (records.length > 0) {
-        options.reply_markup = {
-            inline_keyboard: [[{ text: "🔓 Unban All", callback_data: "unban_all" }]]
-        };
+    const inline_keyboard: any[][] = [];
+    
+    // Bottom row: pagination + unban all
+    const bottomRow = [];
+    if (hasMore) {
+        bottomRow.push({ text: `📄 Load More (${to + 1}–${Math.min(to + BANNED_PAGE_SIZE, total)})`, callback_data: `bnd_${page + 1}` });
     }
+    bottomRow.push({ text: "🔓 Unban All", callback_data: "unban_all" });
+    inline_keyboard.push(bottomRow);
+
+    const options: any = { 
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard } 
+    };
 
     telegram.sendMessage(msg, options);
+}
+
+telegram.onCommand("banned", (msg) => {
+    const cmdArgs = msg.text?.split(" ") || [];
+    const arg = cmdArgs[1];
+    const page = arg ? Math.max(0, parseInt(arg, 10) - 1) : 0;
+    sendBannedPage(isNaN(page) ? 0 : page);
+});
+
+telegram.onCallback('bnd_', (pageStr: string) => {
+    const page = parseInt(pageStr, 10);
+    if (!isNaN(page)) sendBannedPage(page);
 });
 
 // ── Ban Report Command ──────────────────────────────────────────
